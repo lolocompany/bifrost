@@ -1,0 +1,143 @@
+# Manual release: workflow_dispatch with version tag → cross-compile bifrost → GitHub Release + checksums.
+# Pattern aligned with https://github.com/lolocompany/kafka-replay/blob/main/.github/workflows/release.yml
+name: Release
+
+run-name: Release ${{ inputs.version }} by @${{ github.actor }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version: X.Y or X.Y.Z (release) or X.Y-Z / X.Y.Z-Z (prerelease; Z = increment, e.g. 0.1.0-3). Optional leading v."
+        required: true
+        type: string
+      prerelease:
+        description: "Mark this release as a prerelease (version must be X.Y-Z or X.Y.Z-Z)"
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check version format and extract
+        id: version
+        run: |
+          VERSION="${{ inputs.version }}"
+          PRERELEASE="${{ inputs.prerelease }}"
+          if [ "$PRERELEASE" = "true" ]; then
+            if ! echo "$VERSION" | grep -qE '^v?[0-9]+\.[0-9]+(\.[0-9]+)?-[0-9]+$'; then
+              echo "::error::Prerelease version must match X.Y-Z or X.Y.Z-Z (optional leading v), e.g. 1.0-3 or v0.1.0-1. Got: $VERSION"
+              exit 1
+            fi
+          else
+            if ! echo "$VERSION" | grep -qE '^v?[0-9]+\.[0-9]+(\.[0-9]+)?$'; then
+              echo "::error::Release version must match X.Y or X.Y.Z (optional leading v), e.g. 1.0 or v0.1.0. Got: $VERSION"
+              exit 1
+            fi
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [ "$PRERELEASE" = "true" ]; then
+            BASE_VERSION="${VERSION%-*}"
+            INCREMENT="${VERSION##*-}"
+            NO_V="${BASE_VERSION#v}"
+            git fetch --prune --tags origin
+            for tag in "$NO_V" "v$NO_V"; do
+              if [ "$tag" = "v" ]; then
+                continue
+              fi
+              if git rev-parse -q --verify "refs/tags/$tag" >/dev/null 2>&1; then
+                echo "::error::Tag '$tag' already exists on the remote. Prerelease '$VERSION' is for work toward stable **$NO_V**; that version must not be tagged or released yet (increment $INCREMENT is the Nth prerelease *before* $NO_V)."
+                exit 1
+              fi
+            done
+            echo "release_name=Prerelease increment ${INCREMENT} of upcoming release ${BASE_VERSION}" >> "$GITHUB_OUTPUT"
+            echo "release_body=**This is a prerelease** — draft increment ${INCREMENT} of the upcoming ${BASE_VERSION} bifrost build. Subject to change before the final release." >> "$GITHUB_OUTPUT"
+          else
+            echo "release_name=Release ${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "release_body=Official release ${VERSION} of **bifrost** (Quick Kafka Processor)." >> "$GITHUB_OUTPUT"
+          fi
+          echo "Version: $VERSION (prerelease=$PRERELEASE)"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build for Linux AMD64
+        run: |
+          GOOS=linux GOARCH=amd64 go build -ldflags "-X main.Version=${{ steps.version.outputs.version }}" -o bifrost-linux-amd64 ./cmd/bifrost
+
+      - name: Build for Linux ARM64
+        run: |
+          GOOS=linux GOARCH=arm64 go build -ldflags "-X main.Version=${{ steps.version.outputs.version }}" -o bifrost-linux-arm64 ./cmd/bifrost
+
+      - name: Build for macOS AMD64
+        run: |
+          GOOS=darwin GOARCH=amd64 go build -ldflags "-X main.Version=${{ steps.version.outputs.version }}" -o bifrost-darwin-amd64 ./cmd/bifrost
+
+      - name: Build for macOS ARM64
+        run: |
+          GOOS=darwin GOARCH=arm64 go build -ldflags "-X main.Version=${{ steps.version.outputs.version }}" -o bifrost-darwin-arm64 ./cmd/bifrost
+
+      - name: Build for Windows AMD64
+        run: |
+          GOOS=windows GOARCH=amd64 go build -ldflags "-X main.Version=${{ steps.version.outputs.version }}" -o bifrost-windows-amd64.exe ./cmd/bifrost
+
+      - name: Build for Windows ARM64
+        run: |
+          GOOS=windows GOARCH=arm64 go build -ldflags "-X main.Version=${{ steps.version.outputs.version }}" -o bifrost-windows-arm64.exe ./cmd/bifrost
+
+      - name: Create checksums
+        run: |
+          sha256sum bifrost-* > checksums.txt
+
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: ${{ steps.version.outputs.release_name }}
+          body: |
+            ${{ steps.version.outputs.release_body }}
+
+            ## Assets
+            - Linux AMD64
+            - Linux ARM64
+            - macOS AMD64 (Intel)
+            - macOS ARM64 (Apple Silicon)
+            - Windows AMD64
+            - Windows ARM64
+
+            ## macOS Gatekeeper
+
+            If you see a Gatekeeper warning ("Apple could not verify..."), you can clear the quarantine attribute:
+
+            ```bash
+            # Apple Silicon (ARM64)
+            xattr -d com.apple.quarantine bifrost-darwin-arm64
+
+            # Intel (AMD64)
+            xattr -d com.apple.quarantine bifrost-darwin-amd64
+            ```
+          files: |
+            bifrost-linux-amd64
+            bifrost-linux-arm64
+            bifrost-darwin-amd64
+            bifrost-darwin-arm64
+            bifrost-windows-amd64.exe
+            bifrost-windows-arm64.exe
+            checksums.txt
+          draft: false
+          prerelease: ${{ inputs.prerelease }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

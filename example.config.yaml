@@ -1,0 +1,94 @@
+# Example: multiple Kafka clusters and bridges (adjust names, brokers, auth).
+clusters:
+  cluster_a:
+    brokers:
+      - '127.0.0.1:9092'
+    tls:
+      enabled: false
+    sasl:
+      mechanism: none
+  cluster_b:
+    brokers:
+      - '127.0.0.1:9094'
+    tls:
+      enabled: false
+    sasl:
+      mechanism: none
+  # Optional franz-go tuning per cluster (omit for defaults). If you hit MESSAGE_TOO_LARGE on
+  # large records, raise producer.batch_max_bytes and consumer.fetch_max_* (and broker limits).
+  #  client:
+  #    client_id: bifrost-prod
+  #    dial_timeout: "15s"
+  #    request_timeout_overhead: "10s"
+  #    broker_max_write_bytes: 16777216   # raise with large records / producer.batch_max_bytes
+  #    broker_max_read_bytes: 16777216
+  #  consumer:
+  #    fetch_max_bytes: 52428800
+  #    fetch_max_partition_bytes: 10485760
+  #    fetch_max_wait: "500ms"
+  #    session_timeout: "45s"
+  #    heartbeat_interval: "3s"
+  #    rebalance_timeout: "60s"
+  #    isolation_level: read_uncommitted   # or read_committed
+  #  producer:
+  #    required_acks: all                  # all | leader | none
+  #    batch_max_bytes: 1048576
+  #    batch_compression: snappy           # snappy | zstd | lz4 | gzip | none
+  #    linger: "5ms"
+  #    produce_request_timeout: "30s"
+  #    disable_idempotent_write: false
+  # Example with TLS + SCRAM (uncomment and set paths / secrets for real use):
+  # secure:
+  #   brokers: ["kafka.example:9093"]
+  #   tls:
+  #     enabled: true
+  #     ca_file: "/path/to/ca.pem"
+  #     cert_file: "/path/to/client.pem"
+  #     key_file: "/path/to/client-key.pem"
+  #     insecure_skip_verify: false
+  #   sasl:
+  #     mechanism: scram-sha-256
+  #     username: "user"
+  #     password: "secret"
+
+bridges:
+  - name: a-to-b
+    from:
+      cluster: cluster_a
+      topic: incoming
+    to:
+      cluster: cluster_b
+      topic: outgoing
+    # consumer_group: optional; default is bifrost-<sanitized name>
+  - name: b-to-a
+    from:
+      cluster: cluster_b
+      topic: replies
+    to:
+      cluster: cluster_a
+      topic: replies-ingress
+
+metrics:
+  enabled: true
+  # listen_addr defaults to ":9090" when metrics are enabled and this is omitted or blank.
+  listen_addr: ':9090'
+  groups:
+    forward: true
+    errors: true
+    latency: true
+    # Go runtime (go_*), build info (go_build_info), and process stats (process_*)
+    golang: true
+    process: true
+    # franz-go broker hooks: connects, E2E bytes/latency, throttle
+    kafka: true
+    # TLS handshakes + peer leaf certificate NotAfter (when TLS is used)
+    tls: true
+    # Linux: TCP stack counters for this process network namespace (retransmissions, etc.)
+    tcp: true
+
+logging:
+  level: info
+  # format: json   # default when omitted
+  stream: stdout
+  # stream: file
+  # file_path: "/var/log/bifrost.log"
