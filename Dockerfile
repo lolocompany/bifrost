@@ -7,9 +7,7 @@ RUN go mod download
 
 COPY . .
 
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o /out/bifrost ./cmd/bifrost
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/bifrost ./cmd/bifrost
 
 FROM alpine:3.22
 

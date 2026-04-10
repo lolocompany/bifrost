@@ -3,6 +3,7 @@ help:
 	@echo "Usage: make <target>"
 	@echo "Targets:"
 	@echo "  build              Build bifrost (./cmd/bifrost)"
+	@echo "  build-docker       Build Docker image (bifrost:latest)"
 	@echo "  test               Unit tests (./test/unit/...)"
 	@echo "  bench              Benchmarks (BIFROST_BENCHMARK=1 for Docker bridge throughput; ./test/benchmark/...)"
 	@echo "  test-integration   Integration tests (BIFROST_INTEGRATION=1; ./test/integration/...)"
@@ -13,6 +14,10 @@ help:
 .PHONY: build
 build:
 	go build -o bifrost ./cmd/bifrost
+
+.PHONY: build-docker
+build-docker:
+	docker build -t bifrost .
 
 .PHONY: test
 test:
