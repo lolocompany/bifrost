@@ -1,7 +1,3 @@
-# bifrost example configuration
-# - Required fields are active.
-# - Optional fields are shown as commented examples with explanations.
-
 clusters:
   # Logical name referenced by bridges[].from.cluster / bridges[].to.cluster.
   cluster_a:
