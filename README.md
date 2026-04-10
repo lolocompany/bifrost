@@ -83,9 +83,7 @@ When `metrics.enabled` is true (default), bifrost serves Prometheus metrics on `
 
 Metric groups are controlled by `metrics.groups` and default to enabled when omitted:
 
-- `forward` — successful relay counters (`bridge`, `from_cluster`, `from_topic`, `to_cluster`, `to_topic`)
-- `errors` — relay failure counters with `stage` label (`poll`, `produce`, `commit`, `route`)
-- `latency` — relay produce latency histograms per bridge
+- `forward`, `errors`, `latency` — together control the `bifrost_relay_*` success, error, and duration metrics for each bridge
 - `kafka` — broker hook metrics per cluster (connect, E2E bytes/errors/latency, throttling)
 - `tls` — TLS handshake and peer certificate metrics per cluster
 - `golang`, `process`, `tcp` — runtime/platform collectors

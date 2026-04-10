@@ -11,8 +11,8 @@ var promNameRE = regexp.MustCompile(`^[a-zA-Z_:][a-zA-Z0-9_:]*$`)
 
 // bifrostCounters are Counter/CounterVec metric base names (must end with _total per conventions).
 var bifrostCounters = []string{
-	"bifrost_forward_messages_total",
-	"bifrost_errors_relay_total",
+	"bifrost_relay_messages_total",
+	"bifrost_relay_errors_total",
 	"bifrost_kafka_connect_attempts_total",
 	"bifrost_kafka_connect_errors_total",
 	"bifrost_kafka_requests_total",
@@ -30,7 +30,7 @@ var bifrostCounters = []string{
 
 // bifrostHistograms are Histogram metric base names (unit suffix _seconds or _bytes).
 var bifrostHistograms = []string{
-	"bifrost_latency_produce_duration_seconds",
+	"bifrost_relay_produce_duration_seconds",
 	"bifrost_kafka_connect_duration_seconds",
 	"bifrost_kafka_request_duration_seconds",
 }
@@ -77,6 +77,17 @@ func TestMetricNamesDoNotUseFailuresTerm(t *testing.T) {
 	for _, name := range names {
 		if strings.Contains(name, "failures") {
 			t.Errorf("metric %q must use errors terminology instead of failures", name)
+		}
+	}
+}
+
+func TestMetricNamesDoNotUseForwardErrorsLatencySubsystems(t *testing.T) {
+	names := append(append(append([]string{}, bifrostCounters...), bifrostHistograms...), bifrostGauges...)
+	for _, name := range names {
+		if strings.HasPrefix(name, "bifrost_forward_") ||
+			strings.HasPrefix(name, "bifrost_errors_") ||
+			strings.HasPrefix(name, "bifrost_latency_") {
+			t.Errorf("metric %q must use relay subsystem for core metrics", name)
 		}
 	}
 }

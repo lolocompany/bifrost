@@ -9,9 +9,9 @@ import (
 // the group prefix (e.g. tcp_tcp, kafka_kafka).
 func TestBifrostMetricNamesNoRepeatedGroupPrefix(t *testing.T) {
 	names := []string{
-		"bifrost_forward_messages_total",
-		"bifrost_errors_relay_total",
-		"bifrost_latency_produce_duration_seconds",
+		"bifrost_relay_messages_total",
+		"bifrost_relay_errors_total",
+		"bifrost_relay_produce_duration_seconds",
 		"bifrost_kafka_connect_attempts_total",
 		"bifrost_kafka_connect_errors_total",
 		"bifrost_kafka_connect_duration_seconds",

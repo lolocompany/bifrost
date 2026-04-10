@@ -42,7 +42,7 @@ func New(reg prometheus.Registerer, cfg bifrostconfig.Metrics, bridges []bifrost
 	if g.GroupForward() {
 		c := prometheus.NewCounterVec(
 			prometheus.CounterOpts{
-				Name: "bifrost_forward_messages_total",
+				Name: "bifrost_relay_messages_total",
 				Help: "Total number of messages successfully produced on the to-side cluster.",
 			},
 			BridgeLabelNames,
@@ -56,8 +56,8 @@ func New(reg prometheus.Registerer, cfg bifrostconfig.Metrics, bridges []bifrost
 	if g.GroupErrors() {
 		cv := prometheus.NewCounterVec(
 			prometheus.CounterOpts{
-				Name: "bifrost_errors_relay_total",
-				Help: "Total number of bridge relay errors by stage (poll, produce, commit, route).",
+				Name: "bifrost_relay_errors_total",
+				Help: "Total number of relay errors by stage (poll, produce, commit, route).",
 			},
 			append(append([]string(nil), BridgeLabelNames...), "stage"),
 		)
@@ -70,7 +70,7 @@ func New(reg prometheus.Registerer, cfg bifrostconfig.Metrics, bridges []bifrost
 	if g.GroupLatency() {
 		h := prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
-				Name:    "bifrost_latency_produce_duration_seconds",
+				Name:    "bifrost_relay_produce_duration_seconds",
 				Help:    "Wall-clock duration in seconds to produce a relayed record on the to-side cluster.",
 				Buckets: prometheus.DefBuckets,
 			},

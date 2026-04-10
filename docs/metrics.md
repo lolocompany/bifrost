@@ -23,34 +23,24 @@ These are the stable, low-cardinality label keys used by bifrost application met
 
 | Label key | Groups | Meaning |
 | :-- | :-- | :-- |
-| `bridge` | `forward`, `errors`, `latency` | Logical bridge route name from config. |
-| `from_cluster` | `forward`, `errors`, `latency` | Source cluster key from `bridges[].from.cluster`. |
-| `from_topic` | `forward`, `errors`, `latency` | Source topic from `bridges[].from.topic`. |
-| `to_cluster` | `forward`, `errors`, `latency` | Destination cluster key from `bridges[].to.cluster`. |
-| `to_topic` | `forward`, `errors`, `latency` | Destination topic from `bridges[].to.topic`. |
-| `stage` | `errors` | Relay failure stage (`poll`, `produce`, `commit`, `route`). |
+| `bridge` | `relay` | Logical bridge route name from config. |
+| `from_cluster` | `relay` | Source cluster key from `bridges[].from.cluster`. |
+| `from_topic` | `relay` | Source topic from `bridges[].from.topic`. |
+| `to_cluster` | `relay` | Destination cluster key from `bridges[].to.cluster`. |
+| `to_topic` | `relay` | Destination topic from `bridges[].to.topic`. |
+| `stage` | `relay` | Relay error stage (`poll`, `produce`, `commit`, `route`). |
 | `cluster` | `kafka`, `tls`, `tcp` | Cluster key associated with broker hook events. |
 | `tls_version` | `tls` | Negotiated TLS protocol version (`1.2`, `1.3`, `unknown`). |
 
 Additional labels may appear when `metrics.extra_labels` is configured; those are user-defined constant labels attached to all metric families.
 
-## forward
+## relay
 
 | Metric | Type | Labels | Description |
 | :-- | :-- | :-- | :-- |
-| `bifrost_forward_messages_total` | `Counter` | `bridge`, `from_cluster`, `from_topic`, `to_cluster`, `to_topic` | Count of records relayed successfully (produce + commit completed). |
-
-## errors
-
-| Metric | Type | Labels | Description |
-| :-- | :-- | :-- | :-- |
-| `bifrost_errors_relay_total` | `Counter` | `bridge`, `from_cluster`, `from_topic`, `to_cluster`, `to_topic`, `stage` | Count of bridge errors by stage (`poll`, `produce`, `commit`, `route`). |
-
-## latency
-
-| Metric | Type | Labels | Description |
-| :-- | :-- | :-- | :-- |
-| `bifrost_latency_produce_duration_seconds` | `Histogram` | `bridge`, `from_cluster`, `from_topic`, `to_cluster`, `to_topic` | Histogram of to-side produce time per relayed record. |
+| `bifrost_relay_messages_total` | `Counter` | `bridge`, `from_cluster`, `from_topic`, `to_cluster`, `to_topic` | Count of records relayed successfully (produce + commit completed). |
+| `bifrost_relay_errors_total` | `Counter` | `bridge`, `from_cluster`, `from_topic`, `to_cluster`, `to_topic`, `stage` | Count of relay errors by stage (`poll`, `produce`, `commit`, `route`). |
+| `bifrost_relay_produce_duration_seconds` | `Histogram` | `bridge`, `from_cluster`, `from_topic`, `to_cluster`, `to_topic` | Histogram of to-side produce time per relayed record. |
 
 ## kafka
 

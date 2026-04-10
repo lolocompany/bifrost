@@ -131,8 +131,9 @@ type Metrics struct {
 }
 
 // MetricGroups toggles metric families. Omitted or nil fields default to enabled.
-// When enabled, application metric families use the bifrost_ namespace (bifrost_forward_, bifrost_errors_,
-// bifrost_latency_, bifrost_kafka_, bifrost_tls_, bifrost_tcp_). The golang/process groups expose standard
+// When enabled, application metric families use the bifrost_ namespace (bifrost_relay_, bifrost_kafka_,
+// bifrost_tls_, bifrost_tcp_). The forward/errors/latency group switches together control the relay metric
+// families. The golang/process groups expose standard
 // client_golang collector names (go_* and process_*). See pkg/metrics for details.
 type MetricGroups struct {
 	Forward *bool `yaml:"forward"`

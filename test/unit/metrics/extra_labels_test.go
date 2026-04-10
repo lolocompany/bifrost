@@ -50,12 +50,12 @@ func TestMetricsExtraLabelsApplied(t *testing.T) {
 		t.Fatal("no metric families gathered")
 	}
 
-	seenForward := false
+	seenRelay := false
 	seenGo := false
 	for _, mf := range fams {
 		switch mf.GetName() {
-		case "bifrost_forward_messages_total":
-			seenForward = true
+		case "bifrost_relay_messages_total":
+			seenRelay = true
 			assertHasLabel(t, mf, "service", "bifrost")
 			assertHasLabel(t, mf, "env", "test")
 		case "go_goroutines":
@@ -64,8 +64,8 @@ func TestMetricsExtraLabelsApplied(t *testing.T) {
 			assertHasLabel(t, mf, "env", "test")
 		}
 	}
-	if !seenForward {
-		t.Fatal("did not find bifrost_forward_messages_total")
+	if !seenRelay {
+		t.Fatal("did not find bifrost_relay_messages_total")
 	}
 	if !seenGo {
 		t.Fatal("did not find go_goroutines")
