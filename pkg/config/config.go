@@ -41,6 +41,11 @@ type Cluster struct {
 	Client   ClientSettings   `yaml:"client"`
 	Consumer ConsumerSettings `yaml:"consumer"`
 	Producer ProducerSettings `yaml:"producer"`
+
+	// AutoCreateTopics, when true, creates each bridge source (from) and destination (to) topic on
+	// this cluster at startup if it does not exist (Kafka CreateTopics). Default false: topics must
+	// exist or be created by the broker (e.g. broker auto-create) or an operator.
+	AutoCreateTopics bool `yaml:"auto_create_topics"`
 }
 
 // ClientSettings configures connection-level options shared by every Kafka client to this cluster
@@ -150,6 +155,10 @@ type Logging struct {
 	Stream      string            `yaml:"stream"`       // stdout, stderr, file
 	FilePath    string            `yaml:"file_path"`    // required when stream is file
 	ExtraFields map[string]string `yaml:"extra_fields"` // always included on every log line
+	// PeriodicStatsInterval is how often each bridge logs relay stats (messages/errors since the
+	// previous log) at info level. Go duration syntax (e.g. "1m", "30s"). Empty defaults to "5m".
+	// Use "0" or "0s" to disable.
+	PeriodicStatsInterval string `yaml:"periodic_stats_interval"`
 }
 
 // Load reads and parses a YAML file from path.
@@ -202,6 +211,9 @@ func (c *Config) applyDefaults() {
 	}
 	if strings.TrimSpace(c.Logging.Stream) == "" {
 		c.Logging.Stream = "stdout"
+	}
+	if strings.TrimSpace(c.Logging.PeriodicStatsInterval) == "" {
+		c.Logging.PeriodicStatsInterval = "5m"
 	}
 	// When metrics are on, listen_addr defaults so a minimal config can omit the whole metrics section.
 	if c.Metrics.MetricsEnabled() {
@@ -625,6 +637,9 @@ func (l *Logging) validate() error {
 			return fmt.Errorf("extra_fields[%q]: value must not be empty", k)
 		}
 	}
+	if _, err := l.ParsePeriodicStatsInterval(); err != nil {
+		return fmt.Errorf("periodic_stats_interval: %w", err)
+	}
 	return nil
 }
 
@@ -638,6 +653,23 @@ func (l *Logging) FormatKey() string {
 
 func (l *Logging) StreamKey() string {
 	return strings.ToLower(strings.TrimSpace(l.Stream))
+}
+
+// ParsePeriodicStatsInterval returns the interval for periodic per-bridge relay stats logs at info
+// level. A duration of 0 means disabled. After applyDefaults, an empty field is treated as "5m".
+func (l *Logging) ParsePeriodicStatsInterval() (time.Duration, error) {
+	s := strings.TrimSpace(l.PeriodicStatsInterval)
+	if s == "" {
+		s = "5m"
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, fmt.Errorf("parse duration: %w", err)
+	}
+	if d < 0 {
+		return 0, fmt.Errorf("must not be negative")
+	}
+	return d, nil
 }
 
 // EffectiveConsumerGroup returns the consumer group for this bridge.

@@ -5,6 +5,9 @@ clusters:
     brokers:
       - '127.0.0.1:9092'
 
+    # Optional: create bridge from/to topics on this cluster at startup (default false).
+    # auto_create_topics: true
+
     # Optional TLS block. Omit to use defaults (tls.enabled=false).
     # tls:
     #   enabled: true
@@ -121,5 +124,9 @@ logging:
     uls_version: '1.0'
     service: 'bifrost'
     env: 'local'
+  # How often each bridge logs info-level "bridge periodic stats" (messages_delta and errors_delta
+  # since the previous log, plus period_seconds). Go duration syntax (e.g. 30s, 5m). Default 5m.
+  # Set to "0" or "0s" to disable.
+  periodic_stats_interval: '5m'
   # Required only when stream=file.
   # file_path: "/var/log/bifrost.log"

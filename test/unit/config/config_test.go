@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"testing"
+	"time"
 
 	"github.com/lolocompany/bifrost/pkg/config"
 )
@@ -46,6 +47,37 @@ logging:
 	if cfg.Bridges[0].EffectiveConsumerGroup() != "bifrost-east-to-west" {
 		t.Fatalf("default consumer group: %q", cfg.Bridges[0].EffectiveConsumerGroup())
 	}
+	if cfg.Clusters["east"].AutoCreateTopics {
+		t.Fatalf("default auto_create_topics: want false")
+	}
+	if cfg.Clusters["west"].AutoCreateTopics {
+		t.Fatalf("default auto_create_topics: want false")
+	}
+}
+
+func TestParse_clusterAutoCreateTopics(t *testing.T) {
+	const yamlDoc = `
+clusters:
+  east:
+    brokers: ["127.0.0.1:9092"]
+    auto_create_topics: true
+bridges:
+  - name: east-loop
+    from: { cluster: east, topic: in }
+    to: { cluster: east, topic: out }
+metrics:
+  enabled: false
+logging:
+  level: info
+  stream: stdout
+`
+	cfg, err := config.Parse([]byte(yamlDoc))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if !cfg.Clusters["east"].AutoCreateTopics {
+		t.Fatalf("auto_create_topics: want true")
+	}
 }
 
 func TestParse_loggingFormatDefaultJSON(t *testing.T) {
@@ -76,6 +108,42 @@ logging:
 	}
 	if cfg.Logging.Format != "json" {
 		t.Fatalf("default log format: want json, got %q", cfg.Logging.Format)
+	}
+	d, err := cfg.Logging.ParsePeriodicStatsInterval()
+	if err != nil {
+		t.Fatalf("ParsePeriodicStatsInterval: %v", err)
+	}
+	if want := 5 * time.Minute; d != want {
+		t.Fatalf("default periodic_stats_interval: want %v, got %v", want, d)
+	}
+}
+
+func TestParse_loggingPeriodicStatsIntervalDisabled(t *testing.T) {
+	const yamlDoc = `
+clusters:
+  east:
+    brokers: ["127.0.0.1:9092"]
+bridges:
+  - name: east-loop
+    from: { cluster: east, topic: in }
+    to: { cluster: east, topic: out }
+metrics:
+  enabled: false
+logging:
+  level: info
+  stream: stdout
+  periodic_stats_interval: "0"
+`
+	cfg, err := config.Parse([]byte(yamlDoc))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	d, err := cfg.Logging.ParsePeriodicStatsInterval()
+	if err != nil {
+		t.Fatalf("ParsePeriodicStatsInterval: %v", err)
+	}
+	if d != 0 {
+		t.Fatalf("disabled periodic stats: want 0, got %v", d)
 	}
 }
 

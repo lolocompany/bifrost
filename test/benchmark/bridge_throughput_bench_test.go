@@ -277,7 +277,7 @@ func benchmarkBridgeRelayWithBurst(b *testing.B, payloadSize int, burst int) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- bridge.Run(bridgeCtx, id, consumer, producer, m)
+		errCh <- bridge.Run(bridgeCtx, id, consumer, producer, m, 0)
 	}()
 
 	runDeadline := 30 * time.Minute

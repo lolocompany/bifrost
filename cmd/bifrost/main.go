@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
 	"syscall"
 	"time"
 
@@ -70,6 +71,11 @@ func run(ctx context.Context, c *cli.Command) error {
 	}
 	defer logCleanup()
 
+	periodicStatsInterval, err := cfg.Logging.ParsePeriodicStatsInterval()
+	if err != nil {
+		return fmt.Errorf("logging: %w", err)
+	}
+
 	reg := prometheus.NewRegistry()
 	var reger prometheus.Registerer = reg
 	if len(cfg.Metrics.ExtraLabels) > 0 {
@@ -116,6 +122,12 @@ func run(ctx context.Context, c *cli.Command) error {
 		}
 	}()
 
+	topicsByCluster := make(map[string][]string)
+	for _, br := range cfg.Bridges {
+		topicsByCluster[br.From.Cluster] = append(topicsByCluster[br.From.Cluster], br.From.Topic)
+		topicsByCluster[br.To.Cluster] = append(topicsByCluster[br.To.Cluster], br.To.Topic)
+	}
+
 	for _, br := range cfg.Bridges {
 		clusterName := br.To.Cluster
 		if _, ok := producerClients[clusterName]; ok {
@@ -138,6 +150,13 @@ func run(ctx context.Context, c *cli.Command) error {
 		}
 		cancelPing()
 		producerClients[clusterName] = p
+	}
+
+	for _, clusterName := range bridgeClusterNames(cfg.Bridges) {
+		clusterCfg := cfg.Clusters[clusterName]
+		if err := ensureTopicsForCluster(ctx, clusterCfg, clusterName, topicsByCluster[clusterName], producerClients, brokerMetrics); err != nil {
+			return err
+		}
 	}
 
 	g, gctx := errgroup.WithContext(ctx)
@@ -173,7 +192,7 @@ func run(ctx context.Context, c *cli.Command) error {
 				"from_cluster", br.From.Cluster,
 				"to_cluster", br.To.Cluster,
 			)
-			if err := bridge.Run(gctx, bridge.IdentityFrom(br), consumer, producer, m); err != nil {
+			if err := bridge.Run(gctx, bridge.IdentityFrom(br), consumer, producer, m, periodicStatsInterval); err != nil {
 				if errors.Is(err, context.Canceled) {
 					return nil
 				}
@@ -187,6 +206,69 @@ func run(ctx context.Context, c *cli.Command) error {
 		return err
 	}
 	return nil
+}
+
+// ensureTopicsForCluster creates missing from/to topics on this cluster only when clusterCfg.AutoCreateTopics is true.
+func ensureTopicsForCluster(
+	ctx context.Context,
+	clusterCfg config.Cluster,
+	clusterName string,
+	topics []string,
+	producerClients map[string]*kgo.Client,
+	brokerMetrics *metrics.BrokerMetrics,
+) error {
+	if !clusterCfg.AutoCreateTopics {
+		return nil
+	}
+	var cl *kgo.Client
+	closeClient := false
+	if p, ok := producerClients[clusterName]; ok {
+		cl = p
+	} else {
+		tmp, err := bifrostkafka.NewProducer(&clusterCfg, kafkaClientHooks(brokerMetrics, clusterName))
+		if err != nil {
+			return fmt.Errorf("cluster %q auto_create_topics: %w", clusterName, err)
+		}
+		pingCtx, cancelPing, err := bifrostkafka.WithPingTimeout(ctx, &clusterCfg)
+		if err != nil {
+			tmp.Close()
+			return fmt.Errorf("cluster %q auto_create_topics ping: %w", clusterName, err)
+		}
+		if err := bifrostkafka.PingBroker(pingCtx, tmp); err != nil {
+			cancelPing()
+			tmp.Close()
+			return fmt.Errorf("cluster %q auto_create_topics: broker unreachable: %w", clusterName, err)
+		}
+		cancelPing()
+		cl = tmp
+		closeClient = true
+	}
+	created, err := bifrostkafka.EnsureTopics(ctx, cl, clusterCfg.AutoCreateTopics, topics)
+	if closeClient {
+		cl.Close()
+	}
+	if err != nil {
+		return fmt.Errorf("cluster %q: ensure topics: %w", clusterName, err)
+	}
+	for _, topic := range created {
+		slog.Info("kafka topic created", "cluster", clusterName, "topic", topic)
+	}
+	return nil
+}
+
+// bridgeClusterNames returns sorted unique cluster names referenced by bridges.
+func bridgeClusterNames(bridges []config.Bridge) []string {
+	seen := make(map[string]struct{})
+	for _, br := range bridges {
+		seen[br.From.Cluster] = struct{}{}
+		seen[br.To.Cluster] = struct{}{}
+	}
+	out := make([]string, 0, len(seen))
+	for c := range seen {
+		out = append(out, c)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func kafkaClientHooks(broker *metrics.BrokerMetrics, cluster string) []kgo.Hook {

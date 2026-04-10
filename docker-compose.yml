@@ -1,0 +1,76 @@
+version: "3.8"
+
+services:
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:latest
+    container_name: redpanda-local
+    command:
+      - redpanda
+      - start
+      - --kafka-addr
+      - internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr
+      - internal://redpanda:9092,external://localhost:19092
+      - --pandaproxy-addr
+      - internal://0.0.0.0:8082,external://0.0.0.0:18082
+      - --advertise-pandaproxy-addr
+      - internal://redpanda:8082,external://localhost:18082
+      - --schema-registry-addr
+      - internal://0.0.0.0:8081,external://0.0.0.0:18081
+      - --rpc-addr
+      - redpanda:33145
+      - --advertise-rpc-addr
+      - redpanda:33145
+      - --smp
+      - "1"
+      - --memory
+      - 1G
+      - --mode
+      - dev-container
+      - --default-log-level=info
+    ports:
+      - "19092:19092" # Kafka API (external)
+      - "18081:18081" # Schema Registry (external)
+      - "18082:18082" # Pandaproxy (external)
+      - "9644:9644" # Admin API
+    networks:
+      - kafka-replay-network
+
+  kafka-writer:
+    image: confluentinc/cp-kafkacat:latest
+    container_name: kafka-writer-local
+    depends_on:
+      - redpanda
+    command: >
+      sh -c "
+      echo 'Waiting for Redpanda to be ready...' &&
+      sleep 10 &&
+      echo 'Starting to write messages to test-topic...' &&
+      while true; do
+        echo '{\"timestamp\":\"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'\",\"message\":\"Test message '$(date +%s)'\",\"source\":\"kafka-writer\"}' | 
+        kafkacat -b redpanda:9092 -t test-topic -P
+        sleep 1
+      done
+      "
+    restart: unless-stopped
+    networks:
+      - kafka-replay-network
+
+  console:
+    image: docker.redpanda.com/redpandadata/console:latest
+    container_name: redpanda-local-console
+    depends_on:
+      - redpanda
+    environment:
+      - KAFKA_BROKERS=redpanda:9092
+      - KAFKA_SCHEMAREGISTRY_ENABLED=true
+      - KAFKA_SCHEMAREGISTRY_URLS=http://redpanda:8081
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    networks:
+      - kafka-replay-network
+
+networks:
+  kafka-replay-network:
+    driver: bridge

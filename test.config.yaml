@@ -1,0 +1,28 @@
+clusters:
+  local:
+    brokers:
+      - '127.0.0.1:19092'
+    auto_create_topics: true
+
+bridges:
+  - name: local-to-local
+    from:
+      cluster: local
+      topic: test-topic
+    to:
+      cluster: local
+      topic: test-topic-replica
+  - name: local-to-local-1
+    from:
+      cluster: local
+      topic: test-topic
+    to:
+      cluster: local
+      topic: test-topic-replica-1
+  - name: local-to-local-2
+    from:
+      cluster: local
+      topic: test-topic
+    to:
+      cluster: local
+      topic: test-topic-replica-2
