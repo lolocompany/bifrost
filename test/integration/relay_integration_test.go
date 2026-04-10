@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"os"
@@ -114,6 +115,7 @@ func runBridgeRelayTest(t *testing.T, brokers []string) {
 
 	deadline := time.Now().Add(40 * time.Second)
 	var got []byte
+	var gotRecord *kgo.Record
 	for time.Now().Before(deadline) {
 		fetches := verify.PollFetches(bridgeCtx)
 		if err := fetches.Err(); err != nil {
@@ -125,6 +127,8 @@ func runBridgeRelayTest(t *testing.T, brokers []string) {
 		for _, r := range fetches.Records() {
 			if r.Topic == toTopic && string(r.Value) == string(want) {
 				got = append([]byte(nil), r.Value...)
+				cp := *r
+				gotRecord = &cp
 				break
 			}
 		}
@@ -143,5 +147,35 @@ func runBridgeRelayTest(t *testing.T, brokers []string) {
 	}
 	if string(got) != string(want) {
 		t.Fatalf("value: got %q want %q", got, want)
+	}
+
+	headerVal := func(key string) ([]byte, bool) {
+		for _, h := range gotRecord.Headers {
+			if h.Key == key {
+				return h.Value, true
+			}
+		}
+		return nil, false
+	}
+	if v, ok := headerVal(bridge.HeaderSourceCluster); !ok || string(v) != "it" {
+		t.Fatalf("header %s: got %q ok=%v", bridge.HeaderSourceCluster, v, ok)
+	}
+	if v, ok := headerVal(bridge.HeaderSourceTopic); !ok || string(v) != fromTopic {
+		t.Fatalf("header %s: got %q ok=%v", bridge.HeaderSourceTopic, v, ok)
+	}
+	pv, ok := headerVal(bridge.HeaderSourcePartition)
+	if !ok || len(pv) != 4 {
+		t.Fatalf("header %s: %v ok=%v", bridge.HeaderSourcePartition, pv, ok)
+	}
+	ov, ok := headerVal(bridge.HeaderSourceOffset)
+	if !ok || len(ov) != 8 {
+		t.Fatalf("header %s: %v ok=%v", bridge.HeaderSourceOffset, ov, ok)
+	}
+	// First payload on from-topic should be partition 0, offset 0 for this test.
+	if binary.BigEndian.Uint32(pv) != 0 {
+		t.Fatalf("source partition: got %d want 0", binary.BigEndian.Uint32(pv))
+	}
+	if binary.BigEndian.Uint64(ov) != 0 {
+		t.Fatalf("source offset: got %d want 0", binary.BigEndian.Uint64(ov))
 	}
 }
