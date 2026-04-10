@@ -126,6 +126,17 @@ func run(ctx context.Context, c *cli.Command) error {
 		if err != nil {
 			return fmt.Errorf("producer %q: %w", clusterName, err)
 		}
+		pingCtx, cancelPing, err := bifrostkafka.WithPingTimeout(ctx, &toCluster)
+		if err != nil {
+			p.Close()
+			return fmt.Errorf("producer %q ping: %w", clusterName, err)
+		}
+		if err := bifrostkafka.PingBroker(pingCtx, p); err != nil {
+			cancelPing()
+			p.Close()
+			return fmt.Errorf("producer %q: broker unreachable: %w", clusterName, err)
+		}
+		cancelPing()
 		producerClients[clusterName] = p
 	}
 
@@ -144,6 +155,16 @@ func run(ctx context.Context, c *cli.Command) error {
 				return fmt.Errorf("bridge %q consumer: %w", br.Name, err)
 			}
 			defer consumer.Close()
+
+			pingCtx, cancelPing, err := bifrostkafka.WithPingTimeout(gctx, &fromCluster)
+			if err != nil {
+				return fmt.Errorf("bridge %q consumer ping: %w", br.Name, err)
+			}
+			if err := bifrostkafka.PingBroker(pingCtx, consumer); err != nil {
+				cancelPing()
+				return fmt.Errorf("bridge %q from cluster %q: broker unreachable: %w", br.Name, br.From.Cluster, err)
+			}
+			cancelPing()
 
 			producer := producerClients[br.To.Cluster]
 			slog.Info("bridge starting",

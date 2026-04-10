@@ -2,12 +2,50 @@
 package kafka
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 
 	"github.com/lolocompany/bifrost/pkg/config"
 )
+
+// defaultPingTimeout bounds how long [PingBroker] waits when cluster.client.dial_timeout is unset.
+const defaultPingTimeout = 30 * time.Second
+
+// PingBroker checks that at least one seed or discovered broker responds to a metadata request.
+// Use [WithPingTimeout] (or your own deadline) so startup fails instead of hanging in fetch loops
+// when brokers are unreachable.
+func PingBroker(ctx context.Context, cl *kgo.Client) error {
+	if cl == nil {
+		return errors.New("kafka client is nil")
+	}
+	return cl.Ping(ctx)
+}
+
+// WithPingTimeout returns a child context suitable for [PingBroker]. It uses cluster.client.dial_timeout
+// when set and valid; otherwise it uses defaultPingTimeout.
+func WithPingTimeout(parent context.Context, env *config.Cluster) (context.Context, context.CancelFunc, error) {
+	if parent == nil {
+		return nil, nil, errors.New("parent context is nil")
+	}
+	d := defaultPingTimeout
+	if env != nil {
+		s := strings.TrimSpace(env.Client.DialTimeout)
+		if s != "" {
+			parsed, err := time.ParseDuration(s)
+			if err != nil {
+				return nil, nil, fmt.Errorf("client.dial_timeout: %w", err)
+			}
+			d = parsed
+		}
+	}
+	pingCtx, cancel := context.WithTimeout(parent, d)
+	return pingCtx, cancel, nil
+}
 
 // NewConsumerForBridge returns a consumer-group client for one bridge (one from-side topic).
 // Optional extra kgo options are applied last (e.g. [kgo.FetchMaxPartitionBytes] for large records).
