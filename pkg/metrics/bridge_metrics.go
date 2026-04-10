@@ -18,51 +18,45 @@ type BridgeMetrics struct {
 	produceDuration *prometheus.HistogramVec
 }
 
-func newBridgeMetrics(reg prometheus.Registerer, g bifrostconfig.MetricGroups, bridges []bifrostconfig.Bridge) (*BridgeMetrics, error) {
+func newBridgeMetrics(reg prometheus.Registerer, bridges []bifrostconfig.Bridge) (*BridgeMetrics, error) {
 	m := &BridgeMetrics{}
 
-	if g.GroupForward() {
-		c := prometheus.NewCounterVec(
-			prometheus.CounterOpts{
-				Name: "bifrost_relay_messages_total",
-				Help: "Total number of messages successfully produced on the to-side cluster.",
-			},
-			bridge.LabelNames,
-		)
-		if err := reg.Register(c); err != nil {
-			return nil, fmt.Errorf("register relay messages counter: %w", err)
-		}
-		m.messages = c
+	c := prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "bifrost_relay_messages_total",
+			Help: "Total number of messages successfully produced on the to-side cluster.",
+		},
+		bridge.LabelNames,
+	)
+	if err := reg.Register(c); err != nil {
+		return nil, fmt.Errorf("register relay messages counter: %w", err)
 	}
+	m.messages = c
 
-	if g.GroupErrors() {
-		cv := prometheus.NewCounterVec(
-			prometheus.CounterOpts{
-				Name: "bifrost_relay_errors_total",
-				Help: "Total number of relay errors by stage (poll, produce, commit, route).",
-			},
-			append(append([]string(nil), bridge.LabelNames...), "stage"),
-		)
-		if err := reg.Register(cv); err != nil {
-			return nil, fmt.Errorf("register relay errors counter: %w", err)
-		}
-		m.errors = cv
+	cv := prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "bifrost_relay_errors_total",
+			Help: "Total number of relay errors by stage (poll, produce, commit, route).",
+		},
+		append(append([]string(nil), bridge.LabelNames...), "stage"),
+	)
+	if err := reg.Register(cv); err != nil {
+		return nil, fmt.Errorf("register relay errors counter: %w", err)
 	}
+	m.errors = cv
 
-	if g.GroupLatency() {
-		h := prometheus.NewHistogramVec(
-			prometheus.HistogramOpts{
-				Name:    "bifrost_relay_produce_duration_seconds",
-				Help:    "Wall-clock duration in seconds to produce a relayed record on the to-side cluster.",
-				Buckets: prometheus.DefBuckets,
-			},
-			bridge.LabelNames,
-		)
-		if err := reg.Register(h); err != nil {
-			return nil, fmt.Errorf("register relay produce duration histogram: %w", err)
-		}
-		m.produceDuration = h
+	h := prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "bifrost_relay_produce_duration_seconds",
+			Help:    "Wall-clock duration in seconds to produce a relayed record on the to-side cluster.",
+			Buckets: prometheus.DefBuckets,
+		},
+		bridge.LabelNames,
+	)
+	if err := reg.Register(h); err != nil {
+		return nil, fmt.Errorf("register relay produce duration histogram: %w", err)
 	}
+	m.produceDuration = h
 
 	initBridgeSeries(m, bridges)
 	return m, nil

@@ -130,15 +130,12 @@ type Metrics struct {
 	ExtraLabels map[string]string `yaml:"extra_labels"` // added to all bifrost metrics as constant labels
 }
 
-// MetricGroups toggles metric families. Omitted or nil fields default to enabled.
-// When enabled, application metric families use the bifrost_ namespace (bifrost_relay_, bifrost_kafka_,
-// bifrost_tls_, bifrost_tcp_). The forward/errors/latency group switches together control the relay metric
-// families. The golang/process groups expose standard
-// client_golang collector names (go_* and process_*). See pkg/metrics for details.
+// MetricGroups toggles optional metric families. Omitted or nil fields default to enabled.
+// bifrost_relay_* bridge metrics are always registered when the metrics endpoint is enabled; they are not
+// configurable. Other application families use the bifrost_ namespace (bifrost_kafka_, bifrost_tls_,
+// bifrost_tcp_). The golang/process groups expose standard client_golang collector names (go_* and
+// process_*). See pkg/metrics for details.
 type MetricGroups struct {
-	Forward *bool `yaml:"forward"`
-	Errors  *bool `yaml:"errors"`
-	Latency *bool `yaml:"latency"`
 	Golang  *bool `yaml:"golang"`  // Go runtime + build info collectors
 	Process *bool `yaml:"process"` // process (CPU/mem/fd) collector
 	Kafka   *bool `yaml:"kafka"`   // franz-go broker wire / throttle metrics
@@ -550,30 +547,6 @@ func (m *Metrics) MetricsEnabled() bool {
 		return true
 	}
 	return *m.Enable
-}
-
-// GroupForward reports whether the forward counter family is enabled.
-func (g *MetricGroups) GroupForward() bool {
-	if g == nil || g.Forward == nil {
-		return true
-	}
-	return *g.Forward
-}
-
-// GroupErrors reports whether the errors counter family is enabled.
-func (g *MetricGroups) GroupErrors() bool {
-	if g == nil || g.Errors == nil {
-		return true
-	}
-	return *g.Errors
-}
-
-// GroupLatency reports whether the latency histogram family is enabled.
-func (g *MetricGroups) GroupLatency() bool {
-	if g == nil || g.Latency == nil {
-		return true
-	}
-	return *g.Latency
 }
 
 // GroupGolang reports whether Go runtime and build info collectors are registered.

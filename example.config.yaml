@@ -107,10 +107,6 @@ metrics:
     service: 'bifrost'
     env: 'dev'
   groups:
-    # Enable/disable per-metric family groups.
-    forward: true
-    errors: true
-    latency: true
     golang: true
     process: true
     kafka: true

@@ -4,7 +4,8 @@ This document is the detailed reference for all metrics emitted by bifrost.
 
 - Namespace: application metrics are prefixed with `bifrost_`; Go/process collector metrics keep standard `go_*` and `process_*` names.
 - Constant labels: if `metrics.extra_labels` is configured, those labels are attached to all metrics.
-- Group switches: `metrics.groups.<group>` controls each family.
+- Relay metrics (`bifrost_relay_*`) are always registered when the metrics endpoint is enabled; they are not gated by `metrics.groups`.
+- Group switches: `metrics.groups.<group>` controls optional families (`kafka`, `tls`, `tcp`, `golang`, `process`).
 
 ## Naming Schema
 

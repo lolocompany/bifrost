@@ -32,7 +32,7 @@ func New(reg prometheus.Registerer, cfg bifrostconfig.Metrics, bridges []bifrost
 		return nil, nil, err
 	}
 
-	bridge, err := newBridgeMetrics(reg, cfg.Groups, bridges)
+	bridge, err := newBridgeMetrics(reg, bridges)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -26,9 +26,6 @@ metrics:
   enabled: true
   listen_addr: ":9090"
   groups:
-    forward: true
-    errors: true
-    latency: false
     golang: true
     process: true
     kafka: true
@@ -48,9 +45,6 @@ logging:
 	}
 	if cfg.Bridges[0].EffectiveConsumerGroup() != "bifrost-east-to-west" {
 		t.Fatalf("default consumer group: %q", cfg.Bridges[0].EffectiveConsumerGroup())
-	}
-	if cfg.Metrics.Groups.GroupLatency() {
-		t.Fatal("latency group should be off")
 	}
 }
 

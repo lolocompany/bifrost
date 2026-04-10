@@ -113,9 +113,8 @@ Every relayed record includes **source coordinate** headers so consumers can tre
 
 When `metrics.enabled` is true (default), bifrost serves Prometheus metrics on `/metrics` at `metrics.listen_addr` (default `:9090`).
 
-Metric groups are controlled by `metrics.groups` and default to enabled when omitted:
+Core `bifrost_relay_*` bridge metrics are always exported when metrics are enabled. Optional families are controlled by `metrics.groups` (default enabled when omitted):
 
-- `forward`, `errors`, `latency` — together control the `bifrost_relay_*` success, error, and duration metrics for each bridge
 - `kafka` — broker hook metrics per cluster (connect, E2E bytes/errors/latency, throttling)
 - `tls` — TLS handshake and peer certificate metrics per cluster
 - `golang`, `process`, `tcp` — runtime/platform collectors
