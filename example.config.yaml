@@ -7,7 +7,7 @@ clusters:
   cluster_a:
     # Required: Kafka bootstrap brokers for this cluster.
     brokers:
-      - "127.0.0.1:9092"
+      - '127.0.0.1:9092'
 
     # Optional TLS block. Omit to use defaults (tls.enabled=false).
     # tls:
@@ -78,22 +78,22 @@ clusters:
 
   cluster_b:
     brokers:
-      - "127.0.0.1:9094"
+      - '127.0.0.1:9094'
     # TLS and SASL are omitted here; defaults are tls.enabled=false and sasl.mechanism=none.
 
 bridges:
   # One directional relay route from cluster_a/incoming to cluster_b/outgoing.
-  - name: "a-to-b"
+  - name: 'a-to-b'
     from:
       # Required source cluster key (must exist under clusters).
-      cluster: "cluster_a"
+      cluster: 'cluster_a'
       # Required source topic.
-      topic: "incoming"
+      topic: 'incoming'
     to:
       # Required destination cluster key (must exist under clusters).
-      cluster: "cluster_b"
+      cluster: 'cluster_b'
       # Required destination topic.
-      topic: "outgoing"
+      topic: 'outgoing'
     # Optional consumer group. Defaults to "bifrost-<sanitized bridge name>" when omitted.
     # consumer_group: "bifrost-a-to-b"
 
@@ -101,11 +101,11 @@ metrics:
   # Enable/disable Prometheus metrics endpoint and collectors.
   enabled: true
   # Prometheus listen address for /metrics endpoint.
-  listen_addr: ":9090"
+  listen_addr: ':9090'
   # Optional constant labels attached to all emitted metrics.
   extra_labels:
-    service: "bifrost"
-    env: "dev"
+    service: 'bifrost'
+    env: 'dev'
   groups:
     # Enable/disable per-metric family groups.
     forward: true
@@ -119,14 +119,15 @@ metrics:
 
 logging:
   # Severity threshold: trace, debug, info, warn, error, fatal.
-  level: "info"
+  level: 'info'
   # Output format: json (default) or logfmt.
-  format: "json"
+  format: 'json'
   # Output stream: stdout, stderr, or file.
-  stream: "stdout"
+  stream: 'stdout'
   # Optional fields injected into every log line.
   extra_fields:
-    service: "bifrost"
-    env: "dev"
+    uls_version: '1.0'
+    service: 'bifrost'
+    env: 'local'
   # Required only when stream=file.
   # file_path: "/var/log/bifrost.log"

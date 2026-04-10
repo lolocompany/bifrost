@@ -40,3 +40,5 @@ go.work.sum
 
 # OS X
 .DS_Store
+bifrost
+!cmd/*

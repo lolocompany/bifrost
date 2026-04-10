@@ -41,7 +41,24 @@ go build -o bifrost ./cmd/bifrost
 ./bifrost -c /path/to/bifrost.yaml
 ```
 
-If you omit `**--config**` / `**-c**`, the default path is `**bifrost.yaml**` in the **current working directory**. If that file is missing or invalid, bifrost exits with an error.
+You can also set the config path with the **`BIFROST_CONFIG`** environment variable; it behaves the same as `--config` / `-c`. That is handy in scripts and in containers when you want a fixed path without repeating flags.
+
+If you omit `**--config**` / `**-c**` and do not set **`BIFROST_CONFIG`**, the default path is `**bifrost.yaml**` in the **current working directory**. If that file is missing or invalid, bifrost exits with an error.
+
+### Docker
+
+The [Dockerfile](./Dockerfile) image runs `bifrost` with working directory `/app`. **When using this image, prefer setting `BIFROST_CONFIG`** to the path of your YAML inside the container (for example after bind-mounting or copying the file). That keeps the config location explicit and avoids relying on default filenames or extra container command arguments.
+
+```bash
+docker run --rm \
+  -e BIFROST_CONFIG=/app/bifrost.yaml \
+  -v /path/on/host/bifrost.yaml:/app/bifrost.yaml:ro \
+  ghcr.io/lolocompany/bifrost:latest
+```
+
+Replace the image tag with the version you pull from [GitHub Releases](https://github.com/lolocompany/bifrost/releases) (the release workflow publishes the container to GHCR alongside the binaries).
+
+### Config example
 
 A full multi-cluster example lives in `[example.config.yaml](./example.config.yaml)`. Minimal shape:
 
