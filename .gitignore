@@ -11,6 +11,10 @@
 # Test binary, built with `go test -c`
 *.test
 
+# Local benchmark profiling (make bench-profile-*)
+test/benchmark/*.prof
+test/benchmark/trace.out
+
 # Code coverage profiles and other test artifacts
 *.out
 coverage.*

@@ -5,6 +5,19 @@
 //	BIFROST_BENCHMARK=1 go test -bench=. -benchmem ./test/benchmark/...
 //
 // or `make bench`.
+//
+// Interpreting results:
+//   - BenchmarkKafkaRoundTrip* — produce + consume one topic (no bridge). Compare to
+//     BenchmarkBridgeRelay* at the same size: the gap isolates relay work (second produce,
+//     commit, record copy).
+//   - BenchmarkBridgeRelayBurst* — several messages per iteration; higher MB/s can indicate
+//     amortized fixed costs vs single-message BenchmarkBridgeRelay*.
+//
+// Profiling (CPU, heap, trace, block): make bench-profile-cpu and related targets; override the
+// benchmark with BENCH=BenchmarkKafkaRoundTrip256B. Use benchstat to compare runs:
+//
+//	go test -bench=BenchmarkBridgeRelay256B -benchtime=5s -count=5 ./test/benchmark/... > /tmp/a.txt
+//	benchstat /tmp/a.txt /tmp/b.txt
 package benchmark_test
 
 import (
