@@ -39,9 +39,9 @@ go build -o bifrost ./cmd/bifrost
 ./bifrost --config /path/to/bifrost.yaml
 # or
 ./bifrost -c /path/to/bifrost.yaml
+# or
+BIFROST_CONFIG=/path/to/bifrost.yaml ./bifrost
 ```
-
-You can also set the config path with the **`BIFROST_CONFIG`** environment variable; it behaves the same as `--config` / `-c`. That is handy in scripts and in containers when you want a fixed path without repeating flags.
 
 If you omit `**--config**` / `**-c**` and do not set **`BIFROST_CONFIG`**, the default path is `**bifrost.yaml**` in the **current working directory**. If that file is missing or invalid, bifrost exits with an error.
 
@@ -98,12 +98,12 @@ bridges:
 
 Every relayed record includes **source coordinate** headers so consumers can treat deliveries as **at-least-once** and still process each logical message once. The bridge always sets these; they appear **before** any headers copied from the source record.
 
-| Header | Value |
-| --- | --- |
-| `bifrost.source.cluster` | Source cluster name (UTF-8 string, from bridge identity) |
-| `bifrost.source.topic` | Source topic name (UTF-8 string) |
-| `bifrost.source.partition` | Source partition index, **4 bytes big-endian unsigned** |
-| `bifrost.source.offset` | Source offset, **8 bytes big-endian unsigned** |
+| Header                     | Value                                                    |
+| -------------------------- | -------------------------------------------------------- |
+| `bifrost.source.cluster`   | Source cluster name (UTF-8 string, from bridge identity) |
+| `bifrost.source.topic`     | Source topic name (UTF-8 string)                         |
+| `bifrost.source.partition` | Source partition index, **4 bytes big-endian unsigned**  |
+| `bifrost.source.offset`    | Source offset, **8 bytes big-endian unsigned**           |
 
 **Idempotency key:** the tuple `(cluster, topic, partition, offset)` uniquely identifies the source record. Use it as a deduplication key in your consumer: store seen keys (or a short hash of the concatenation) in a database, cache, or compacted topic, and skip processing when the key was already handled. That works across redeliveries, consumer restarts, and multiple bridge instances writing the same destination, as long as they all relay the same source coordinates.
 
