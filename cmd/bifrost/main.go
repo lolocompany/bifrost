@@ -62,7 +62,15 @@ func run(ctx context.Context, c *cli.Command) error {
 	defer logCleanup()
 
 	reg := prometheus.NewRegistry()
-	m, brokerProm, err := metrics.New(reg, cfg.Metrics, cfg.Bridges)
+	var reger prometheus.Registerer = reg
+	if len(cfg.Metrics.ExtraLabels) > 0 {
+		labels := prometheus.Labels{}
+		for k, v := range cfg.Metrics.ExtraLabels {
+			labels[k] = v
+		}
+		reger = prometheus.WrapRegistererWith(labels, reger)
+	}
+	m, brokerProm, err := metrics.New(reger, cfg.Metrics, cfg.Bridges)
 	if err != nil {
 		return fmt.Errorf("metrics: %w", err)
 	}
@@ -79,7 +87,7 @@ func run(ctx context.Context, c *cli.Command) error {
 
 		go func() {
 			if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				slog.Error("metrics server exited", "err", err)
+				slog.Error("metrics server exited", "error_message", err.Error())
 			}
 		}()
 
@@ -87,7 +95,7 @@ func run(ctx context.Context, c *cli.Command) error {
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			if err := srv.Shutdown(shutdownCtx); err != nil {
-				slog.Error("metrics shutdown", "err", err)
+				slog.Error("metrics shutdown", "error_message", err.Error())
 			}
 		}()
 	}

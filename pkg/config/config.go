@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 	"unicode"
@@ -126,12 +127,13 @@ type Metrics struct {
 	Enable     *bool        `yaml:"enabled"`     // default true when omitted
 	ListenAddr string       `yaml:"listen_addr"` // default :9090 when metrics are enabled and omitted/blank
 	Groups     MetricGroups `yaml:"groups"`
+	ExtraLabels map[string]string `yaml:"extra_labels"` // added to all bifrost metrics as constant labels
 }
 
 // MetricGroups toggles metric families. Omitted or nil fields default to enabled.
-// When enabled, each family uses the namespace bifrost_ followed by the group prefix: bifrost_forward_,
-// bifrost_errors_, bifrost_latency_, bifrost_go_, bifrost_process_, bifrost_kafka_, bifrost_tls_, bifrost_tcp_
-// (see pkg/metrics; names follow Prometheus naming).
+// When enabled, application metric families use the bifrost_ namespace (bifrost_forward_, bifrost_errors_,
+// bifrost_latency_, bifrost_kafka_, bifrost_tls_, bifrost_tcp_). The golang/process groups expose standard
+// client_golang collector names (go_* and process_*). See pkg/metrics for details.
 type MetricGroups struct {
 	Forward *bool `yaml:"forward"`
 	Errors  *bool `yaml:"errors"`
@@ -140,15 +142,16 @@ type MetricGroups struct {
 	Process *bool `yaml:"process"` // process (CPU/mem/fd) collector
 	Kafka   *bool `yaml:"kafka"`   // franz-go broker wire / throttle metrics
 	TLS     *bool `yaml:"tls"`     // TLS handshake + peer cert from broker connections
-	TCP     *bool `yaml:"tcp"`     // Linux: TCP stack stats for this process network namespace (/proc/.../net/snmp, netstat)
+	TCP     *bool `yaml:"tcp"`     // TCP broker socket metrics from franz-go hooks (cross-platform)
 }
 
 // Logging configures process logging (slog).
 type Logging struct {
-	Level    string `yaml:"level"`     // debug, info, warn, error
-	Format   string `yaml:"format"`    // json (default), logfmt
-	Stream   string `yaml:"stream"`    // stdout, stderr, file
-	FilePath string `yaml:"file_path"` // required when stream is file
+	Level       string            `yaml:"level"`        // trace, debug, info, warn, error, fatal
+	Format      string            `yaml:"format"`       // json (default) or logfmt
+	Stream      string            `yaml:"stream"`       // stdout, stderr, file
+	FilePath    string            `yaml:"file_path"`    // required when stream is file
+	ExtraFields map[string]string `yaml:"extra_fields"` // always included on every log line
 }
 
 // Load reads and parses a YAML file from path.
@@ -498,6 +501,9 @@ func (t *BridgeTarget) validate(role string, clusters map[string]Cluster) error 
 }
 
 func (m *Metrics) validate() error {
+	if err := validateMetricsExtraLabels(m.ExtraLabels); err != nil {
+		return fmt.Errorf("extra_labels: %w", err)
+	}
 	if !m.MetricsEnabled() {
 		return nil
 	}
@@ -507,6 +513,32 @@ func (m *Metrics) validate() error {
 	}
 	if _, err := net.ResolveTCPAddr("tcp", addr); err != nil {
 		return fmt.Errorf("listen_addr: %w", err)
+	}
+	return nil
+}
+
+var promLabelNameRE = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+
+var metricVariableLabels = map[string]struct{}{
+	"bridge": {}, "from_cluster": {}, "from_topic": {}, "to_cluster": {}, "to_topic": {},
+	"stage": {}, "cluster": {}, "tls_version": {}, "le": {}, "quantile": {},
+}
+
+func validateMetricsExtraLabels(labels map[string]string) error {
+	for k, v := range labels {
+		name := strings.TrimSpace(k)
+		if name == "" {
+			return errors.New("label name must not be empty")
+		}
+		if !promLabelNameRE.MatchString(name) {
+			return fmt.Errorf("label %q: invalid Prometheus label name", k)
+		}
+		if _, conflict := metricVariableLabels[name]; conflict {
+			return fmt.Errorf("label %q conflicts with built-in metric variable labels", k)
+		}
+		if strings.TrimSpace(v) == "" {
+			return fmt.Errorf("label %q: value must not be empty", k)
+		}
 	}
 	return nil
 }
@@ -586,9 +618,9 @@ func (g *MetricGroups) GroupTCP() bool {
 func (l *Logging) validate() error {
 	level := strings.ToLower(strings.TrimSpace(l.Level))
 	switch level {
-	case "debug", "info", "warn", "error":
+	case "trace", "debug", "info", "warn", "error", "fatal":
 	default:
-		return fmt.Errorf("level: unsupported %q (use debug, info, warn, error)", l.Level)
+		return fmt.Errorf("level: unsupported %q (use trace, debug, info, warn, error, fatal)", l.Level)
 	}
 	format := strings.ToLower(strings.TrimSpace(l.Format))
 	switch format {
@@ -605,6 +637,18 @@ func (l *Logging) validate() error {
 	if stream == "file" {
 		if strings.TrimSpace(l.FilePath) == "" {
 			return errors.New("file_path is required when stream is file")
+		}
+	}
+	for k, v := range l.ExtraFields {
+		name := strings.TrimSpace(k)
+		if name == "" {
+			return errors.New("extra_fields: key must not be empty")
+		}
+		if !promLabelNameRE.MatchString(name) {
+			return fmt.Errorf("extra_fields[%q]: invalid key", k)
+		}
+		if strings.TrimSpace(v) == "" {
+			return fmt.Errorf("extra_fields[%q]: value must not be empty", k)
 		}
 	}
 	return nil

@@ -9,34 +9,23 @@ import (
 )
 
 // RegisterPlatformCollectors registers standard Go, build, and process collectors when enabled in cfg.
-// Go and process series are registered with the bifrost_ namespace (e.g. bifrost_go_*, bifrost_process_*).
+// Go projects conventionally expose these as go_* and process_* collector families.
 func RegisterPlatformCollectors(reg prometheus.Registerer, g bifrostconfig.MetricGroups) error {
 	if g.GroupGolang() || g.GroupProcess() {
-		pref := prometheus.WrapRegistererWithPrefix("bifrost_", reg)
 		if g.GroupGolang() {
-			if err := pref.Register(collectors.NewBuildInfoCollector()); err != nil {
+			if err := reg.Register(collectors.NewBuildInfoCollector()); err != nil {
 				return fmt.Errorf("register build info collector: %w", err)
 			}
-			if err := pref.Register(collectors.NewGoCollector()); err != nil {
+			if err := reg.Register(collectors.NewGoCollector()); err != nil {
 				return fmt.Errorf("register go collector: %w", err)
 			}
 		}
 		if g.GroupProcess() {
-			if err := pref.Register(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{})); err != nil {
+			if err := reg.Register(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{})); err != nil {
 				return fmt.Errorf("register process collector: %w", err)
 			}
 		}
 	}
-	if g.GroupTCP() {
-		c, err := NewTCPNamespaceCollector()
-		if err != nil {
-			return fmt.Errorf("tcp namespace collector: %w", err)
-		}
-		if c != nil {
-			if err := reg.Register(c); err != nil {
-				return fmt.Errorf("register tcp namespace collector: %w", err)
-			}
-		}
-	}
+	// TCP metrics are registered from broker hooks in broker_prom.go (cross-platform).
 	return nil
 }

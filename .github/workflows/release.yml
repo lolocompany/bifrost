@@ -64,7 +64,7 @@ jobs:
             echo "release_body=**This is a prerelease** — draft increment ${INCREMENT} of the upcoming ${BASE_VERSION} bifrost build. Subject to change before the final release." >> "$GITHUB_OUTPUT"
           else
             echo "release_name=Release ${VERSION}" >> "$GITHUB_OUTPUT"
-            echo "release_body=Official release ${VERSION} of **bifrost** (Quick Kafka Processor)." >> "$GITHUB_OUTPUT"
+            echo "release_body=Official release ${VERSION} of **bifrost**." >> "$GITHUB_OUTPUT"
           fi
           echo "Version: $VERSION (prerelease=$PRERELEASE)"
 
@@ -100,6 +100,39 @@ jobs:
       - name: Create checksums
         run: |
           sha256sum bifrost-* > checksums.txt
+
+      - name: Set Docker image tags
+        id: docker_tags
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          IMAGE="docker.io/lolocompany/bifrost"
+          TAGS="${IMAGE}:${VERSION}"
+          if [ "${{ inputs.prerelease }}" != "true" ]; then
+            TAGS="$TAGS"$'\n'"${IMAGE}:latest"
+          fi
+          {
+            echo "tags<<EOF"
+            echo "$TAGS"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.docker_tags.outputs.tags }}
 
       - name: Create Release
         id: create_release

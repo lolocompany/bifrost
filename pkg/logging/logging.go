@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"sort"
 
 	"github.com/lolocompany/bifrost/pkg/config"
 )
@@ -41,24 +42,46 @@ func Setup(cfg config.Logging) (func(), error) {
 	case "json":
 		h = slog.NewJSONHandler(w, opts)
 	case "logfmt":
-		// slog's text handler emits key=value lines (logfmt-style structured logs).
+		// slog text handler emits key=value lines (logfmt-style).
 		h = slog.NewTextHandler(w, opts)
 	default:
 		return nil, fmt.Errorf("unsupported log format %q", cfg.Format)
 	}
-
-	slog.SetDefault(slog.New(h))
+	logger := slog.New(h).With(extraArgs(cfg.ExtraFields)...)
+	slog.SetDefault(logger)
 	return cleanup, nil
+}
+
+func extraArgs(fields map[string]string) []any {
+	if len(fields) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(fields))
+	for k := range fields {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := make([]any, 0, len(keys)*2)
+	for _, k := range keys {
+		out = append(out, k, fields[k])
+	}
+	return out
 }
 
 func parseLevel(s string) (slog.Level, error) {
 	switch s {
+	case "trace":
+		// slog has no trace; DEBUG is the closest severity level.
+		return slog.LevelDebug, nil
 	case "debug":
 		return slog.LevelDebug, nil
 	case "info":
 		return slog.LevelInfo, nil
 	case "warn":
 		return slog.LevelWarn, nil
+	case "fatal":
+		// slog has no fatal; ERROR is the closest severity level.
+		return slog.LevelError, nil
 	case "error":
 		return slog.LevelError, nil
 	default:

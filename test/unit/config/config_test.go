@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"os"
 	"testing"
 
 	"github.com/lolocompany/bifrost/pkg/config"
@@ -35,7 +36,7 @@ metrics:
     tcp: true
 logging:
   level: info
-  format: logfmt
+  format: json
   stream: stdout
 `
 	cfg, err := config.Parse([]byte(yamlDoc))
@@ -145,6 +146,52 @@ logging:
 	}
 	if cfg.Metrics.ListenAddr != "" {
 		t.Fatalf("listen_addr should stay empty when metrics disabled, got %q", cfg.Metrics.ListenAddr)
+	}
+}
+
+func TestParse_loggingFormatAcceptsLogfmt(t *testing.T) {
+	const yamlDoc = `
+clusters:
+  east:
+    brokers: ["127.0.0.1:9092"]
+bridges:
+  - name: east-loop
+    from: { cluster: east, topic: in }
+    to: { cluster: east, topic: out }
+metrics:
+  enabled: false
+logging:
+  level: info
+  format: logfmt
+  stream: stdout
+`
+	_, err := config.Parse([]byte(yamlDoc))
+	if err != nil {
+		t.Fatalf("expected logfmt to parse, got: %v", err)
+	}
+}
+
+func TestParse_loggingExtraFieldsNoDefaults(t *testing.T) {
+	const yamlDoc = `
+clusters:
+  east:
+    brokers: ["127.0.0.1:9092"]
+bridges:
+  - name: east-loop
+    from: { cluster: east, topic: in }
+    to: { cluster: east, topic: out }
+metrics:
+  enabled: false
+logging:
+  level: info
+  stream: stdout
+`
+	cfg, err := config.Parse([]byte(yamlDoc))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(cfg.Logging.ExtraFields) != 0 {
+		t.Fatalf("expected no default extra_fields, got: %#v", cfg.Logging.ExtraFields)
 	}
 }
 
@@ -362,5 +409,67 @@ logging:
 	_, err := config.Parse([]byte(yamlDoc))
 	if err == nil {
 		t.Fatal("expected error for invalid isolation_level")
+	}
+}
+
+func TestParse_metricsExtraLabels(t *testing.T) {
+	const yamlDoc = `
+clusters:
+  east:
+    brokers: ["127.0.0.1:9092"]
+bridges:
+  - name: east-loop
+    from: { cluster: east, topic: in }
+    to: { cluster: east, topic: out }
+metrics:
+  enabled: true
+  listen_addr: ":9090"
+  extra_labels:
+    service: bifrost
+    env: prod
+logging:
+  level: info
+  stream: stdout
+`
+	cfg, err := config.Parse([]byte(yamlDoc))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if cfg.Metrics.ExtraLabels["service"] != "bifrost" {
+		t.Fatalf("extra_labels.service: %q", cfg.Metrics.ExtraLabels["service"])
+	}
+}
+
+func TestParse_metricsExtraLabelsInvalid(t *testing.T) {
+	const yamlDoc = `
+clusters:
+  east:
+    brokers: ["127.0.0.1:9092"]
+bridges:
+  - name: east-loop
+    from: { cluster: east, topic: in }
+    to: { cluster: east, topic: out }
+metrics:
+  enabled: true
+  listen_addr: ":9090"
+  extra_labels:
+    "from_cluster": source
+logging:
+  level: info
+  stream: stdout
+`
+	_, err := config.Parse([]byte(yamlDoc))
+	if err == nil {
+		t.Fatal("expected error for conflicting metrics.extra_labels key")
+	}
+}
+
+func TestExampleConfigParses(t *testing.T) {
+	data, err := os.ReadFile("../../../example.config.yaml")
+	if err != nil {
+		t.Fatalf("ReadFile example.config.yaml: %v", err)
+	}
+	if _, err := config.Parse(data); err != nil {
+		t.Fatalf("Parse example.config.yaml: %v", err)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"sync"
 	"time"
 
 	bifrostconfig "github.com/lolocompany/bifrost/pkg/config"
@@ -15,9 +16,10 @@ import (
 type BrokerProm struct {
 	kafkaEnabled bool
 	tlsEnabled   bool
+	tcpEnabled   bool
 
 	connectAttempts *prometheus.CounterVec
-	connectFailures *prometheus.CounterVec
+	connectErrors   *prometheus.CounterVec
 	connectDuration *prometheus.HistogramVec
 
 	e2eRequests   *prometheus.CounterVec
@@ -32,6 +34,12 @@ type BrokerProm struct {
 	tlsHandshakes     *prometheus.CounterVec
 	tlsHandshakeErrs  *prometheus.CounterVec
 	peerLeafNotAfter  *prometheus.GaugeVec
+
+	tcpConnectAttempts *prometheus.CounterVec
+	tcpConnectErrors   *prometheus.CounterVec
+	tcpConnectDuration *prometheus.HistogramVec
+	tcpDisconnects     *prometheus.CounterVec
+	tcpActiveConns     *prometheus.GaugeVec
 }
 
 // NewBrokerProm registers Kafka/TLS hook metrics when the corresponding groups are enabled.
@@ -39,31 +47,32 @@ type BrokerProm struct {
 func NewBrokerProm(reg prometheus.Registerer, g bifrostconfig.MetricGroups) (*BrokerProm, error) {
 	kafkaOn := g.GroupKafka()
 	tlsOn := g.GroupTLS()
-	if !kafkaOn && !tlsOn {
+	tcpOn := g.GroupTCP()
+	if !kafkaOn && !tlsOn && !tcpOn {
 		return nil, nil
 	}
 
-	bp := &BrokerProm{kafkaEnabled: kafkaOn, tlsEnabled: tlsOn}
+	bp := &BrokerProm{kafkaEnabled: kafkaOn, tlsEnabled: tlsOn, tcpEnabled: tcpOn}
 	labelCluster := []string{"cluster"}
 
 	if kafkaOn {
 		bp.connectAttempts = prometheus.NewCounterVec(
 			prometheus.CounterOpts{
-				Name: "bifrost_kafka_broker_connect_attempts_total",
+				Name: "bifrost_kafka_connect_attempts_total",
 				Help: "Broker dial attempts (before success or failure), labeled by bifrost cluster name.",
 			},
 			labelCluster,
 		)
-		bp.connectFailures = prometheus.NewCounterVec(
+		bp.connectErrors = prometheus.NewCounterVec(
 			prometheus.CounterOpts{
-				Name: "bifrost_kafka_broker_connect_failures_total",
-				Help: "Broker dial or init failures (including TLS/SASL handshake).",
+				Name: "bifrost_kafka_connect_errors_total",
+				Help: "Broker dial or init errors (including TLS/SASL handshake).",
 			},
 			labelCluster,
 		)
 		bp.connectDuration = prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
-				Name:    "bifrost_kafka_broker_connect_duration_seconds",
+				Name:    "bifrost_kafka_connect_duration_seconds",
 				Help:    "Duration in seconds to dial and initialize a broker connection (incl. API versions and SASL).",
 				Buckets: prometheus.DefBuckets,
 			},
@@ -71,35 +80,35 @@ func NewBrokerProm(reg prometheus.Registerer, g bifrostconfig.MetricGroups) (*Br
 		)
 		bp.e2eRequests = prometheus.NewCounterVec(
 			prometheus.CounterOpts{
-				Name: "bifrost_kafka_broker_e2e_requests_total",
+				Name: "bifrost_kafka_requests_total",
 				Help: "Completed broker request/response pairs observed via franz-go E2E hook.",
 			},
 			labelCluster,
 		)
 		bp.e2eErrors = prometheus.NewCounterVec(
 			prometheus.CounterOpts{
-				Name: "bifrost_kafka_broker_e2e_errors_total",
+				Name: "bifrost_kafka_request_errors_total",
 				Help: "Broker E2E request/response errors (write or read).",
 			},
 			labelCluster,
 		)
 		bp.e2eWriteBytes = prometheus.NewCounterVec(
 			prometheus.CounterOpts{
-				Name: "bifrost_kafka_broker_e2e_write_bytes_total",
+				Name: "bifrost_kafka_write_bytes_total",
 				Help: "Bytes written to brokers for full requests (from E2E hook).",
 			},
 			labelCluster,
 		)
 		bp.e2eReadBytes = prometheus.NewCounterVec(
 			prometheus.CounterOpts{
-				Name: "bifrost_kafka_broker_e2e_read_bytes_total",
+				Name: "bifrost_kafka_read_bytes_total",
 				Help: "Bytes read from brokers for full responses (from E2E hook).",
 			},
 			labelCluster,
 		)
 		bp.e2eLatency = prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
-				Name:    "bifrost_kafka_broker_e2e_request_duration_seconds",
+				Name:    "bifrost_kafka_request_duration_seconds",
 				Help:    "End-to-end duration in seconds for a broker request write through response read (franz-go E2E hook).",
 				Buckets: prometheus.DefBuckets,
 			},
@@ -107,14 +116,14 @@ func NewBrokerProm(reg prometheus.Registerer, g bifrostconfig.MetricGroups) (*Br
 		)
 		bp.throttleSeconds = prometheus.NewCounterVec(
 			prometheus.CounterOpts{
-				Name: "bifrost_kafka_broker_throttle_seconds_total",
+				Name: "bifrost_kafka_throttle_seconds_total",
 				Help: "Total accumulated broker throttle time in seconds applied to this client.",
 			},
 			labelCluster,
 		)
 		bp.throttleEvents = prometheus.NewCounterVec(
 			prometheus.CounterOpts{
-				Name: "bifrost_kafka_broker_throttle_events_total",
+				Name: "bifrost_kafka_throttle_events_total",
 				Help: "Number of throttled broker responses.",
 			},
 			labelCluster,
@@ -124,22 +133,61 @@ func NewBrokerProm(reg prometheus.Registerer, g bifrostconfig.MetricGroups) (*Br
 	if tlsOn {
 		bp.tlsHandshakes = prometheus.NewCounterVec(
 			prometheus.CounterOpts{
-				Name: "bifrost_tls_broker_handshakes_total",
+				Name: "bifrost_tls_handshakes_total",
 				Help: "Completed TLS handshakes to Kafka brokers, labeled by bifrost cluster and TLS version.",
 			},
 			[]string{"cluster", "tls_version"},
 		)
 		bp.tlsHandshakeErrs = prometheus.NewCounterVec(
 			prometheus.CounterOpts{
-				Name: "bifrost_tls_broker_handshake_errors_total",
+				Name: "bifrost_tls_handshake_errors_total",
 				Help: "TLS connection attempts where the connection was not a completed TLS handshake (or handshake incomplete).",
 			},
 			labelCluster,
 		)
 		bp.peerLeafNotAfter = prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
-				Name: "bifrost_tls_broker_peer_leaf_not_after_timestamp_seconds",
+				Name: "bifrost_tls_peer_leaf_not_after_timestamp_seconds",
 				Help: "Expiry time of the broker leaf certificate as Unix timestamp in seconds since epoch (last observed per cluster).",
+			},
+			labelCluster,
+		)
+	}
+
+	if tcpOn {
+		bp.tcpConnectAttempts = prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "bifrost_tcp_connect_attempts_total",
+				Help: "TCP dial attempts to Kafka brokers by bifrost cluster.",
+			},
+			labelCluster,
+		)
+		bp.tcpConnectErrors = prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "bifrost_tcp_connect_errors_total",
+				Help: "TCP dial errors to Kafka brokers by bifrost cluster.",
+			},
+			labelCluster,
+		)
+		bp.tcpConnectDuration = prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Name:    "bifrost_tcp_connect_duration_seconds",
+				Help:    "TCP connect duration to brokers in seconds (successful connects only).",
+				Buckets: prometheus.DefBuckets,
+			},
+			labelCluster,
+		)
+		bp.tcpDisconnects = prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "bifrost_tcp_disconnects_total",
+				Help: "TCP broker disconnect events observed by clients.",
+			},
+			labelCluster,
+		)
+		bp.tcpActiveConns = prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Name: "bifrost_tcp_active_connections",
+				Help: "Current active TCP broker connections by cluster.",
 			},
 			labelCluster,
 		)
@@ -159,7 +207,7 @@ func (bp *BrokerProm) collectors() []prometheus.Collector {
 	}
 	raw := []prometheus.Collector{
 		bp.connectAttempts,
-		bp.connectFailures,
+		bp.connectErrors,
 		bp.connectDuration,
 		bp.e2eRequests,
 		bp.e2eErrors,
@@ -171,6 +219,11 @@ func (bp *BrokerProm) collectors() []prometheus.Collector {
 		bp.tlsHandshakes,
 		bp.tlsHandshakeErrs,
 		bp.peerLeafNotAfter,
+		bp.tcpConnectAttempts,
+		bp.tcpConnectErrors,
+		bp.tcpConnectDuration,
+		bp.tcpDisconnects,
+		bp.tcpActiveConns,
 	}
 	var out []prometheus.Collector
 	for _, c := range raw {
@@ -193,12 +246,15 @@ func (bp *BrokerProm) HookFor(cluster string) kgo.Hook {
 type franzHook struct {
 	cluster string
 	bp      *BrokerProm
+	mu      sync.Mutex
+	conns   map[net.Conn]struct{}
 }
 
 var (
-	_ kgo.HookBrokerConnect   = (*franzHook)(nil)
-	_ kgo.HookBrokerE2E       = (*franzHook)(nil)
-	_ kgo.HookBrokerThrottle  = (*franzHook)(nil)
+	_ kgo.HookBrokerConnect    = (*franzHook)(nil)
+	_ kgo.HookBrokerDisconnect = (*franzHook)(nil)
+	_ kgo.HookBrokerE2E        = (*franzHook)(nil)
+	_ kgo.HookBrokerThrottle   = (*franzHook)(nil)
 )
 
 func (f *franzHook) OnBrokerConnect(_ kgo.BrokerMetadata, initDur time.Duration, conn net.Conn, err error) {
@@ -211,9 +267,27 @@ func (f *franzHook) OnBrokerConnect(_ kgo.BrokerMetadata, initDur time.Duration,
 	if bp.kafkaEnabled {
 		bp.connectAttempts.WithLabelValues(cname).Inc()
 		if err != nil {
-			bp.connectFailures.WithLabelValues(cname).Inc()
+			bp.connectErrors.WithLabelValues(cname).Inc()
 		} else {
 			bp.connectDuration.WithLabelValues(cname).Observe(initDur.Seconds())
+		}
+	}
+
+	if bp.tcpEnabled {
+		bp.tcpConnectAttempts.WithLabelValues(cname).Inc()
+		if err != nil {
+			bp.tcpConnectErrors.WithLabelValues(cname).Inc()
+		} else {
+			bp.tcpConnectDuration.WithLabelValues(cname).Observe(initDur.Seconds())
+			f.mu.Lock()
+			if f.conns == nil {
+				f.conns = make(map[net.Conn]struct{})
+			}
+			if _, exists := f.conns[conn]; !exists {
+				f.conns[conn] = struct{}{}
+				bp.tcpActiveConns.WithLabelValues(cname).Inc()
+			}
+			f.mu.Unlock()
 		}
 	}
 
@@ -294,4 +368,18 @@ func (f *franzHook) OnBrokerThrottle(_ kgo.BrokerMetadata, throttleInterval time
 	cname := f.cluster
 	f.bp.throttleSeconds.WithLabelValues(cname).Add(throttleInterval.Seconds())
 	f.bp.throttleEvents.WithLabelValues(cname).Inc()
+}
+
+func (f *franzHook) OnBrokerDisconnect(_ kgo.BrokerMetadata, conn net.Conn) {
+	if f == nil || f.bp == nil || !f.bp.tcpEnabled {
+		return
+	}
+	cname := f.cluster
+	f.bp.tcpDisconnects.WithLabelValues(cname).Inc()
+	f.mu.Lock()
+	if _, exists := f.conns[conn]; exists {
+		delete(f.conns, conn)
+		f.bp.tcpActiveConns.WithLabelValues(cname).Dec()
+	}
+	f.mu.Unlock()
 }
