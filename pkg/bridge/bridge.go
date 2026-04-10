@@ -19,7 +19,8 @@ type MetricsReporter interface {
 }
 
 // Run consumes from the from-side cluster, produces to the to-side cluster, and commits
-// from-side offsets after each successful write on the to side.
+// from-side offsets after each successful write on the to side. Each produced record includes
+// bifrost.source.* headers (see AppendSourceHeaders) before any copied source headers.
 func Run(ctx context.Context, id Identity, consumer, producer *kgo.Client, m MetricsReporter) error {
 	if consumer == nil || producer == nil {
 		return errors.New("kafka clients must not be nil")
@@ -50,11 +51,15 @@ func Run(ctx context.Context, id Identity, consumer, producer *kgo.Client, m Met
 				return fmt.Errorf("unexpected topic %q (want %q)", r.Topic, id.FromTopic)
 			}
 
+			headers := make([]kgo.RecordHeader, 0, len(r.Headers)+4)
+			headers = AppendSourceHeaders(headers, id, r)
+			headers = append(headers, r.Headers...)
+
 			out := &kgo.Record{
 				Topic:     id.ToTopic,
 				Key:       r.Key,
 				Value:     r.Value,
-				Headers:   append([]kgo.RecordHeader(nil), r.Headers...),
+				Headers:   headers,
 				Timestamp: r.Timestamp,
 			}
 
