@@ -70,6 +70,9 @@ func runCLI(ctx context.Context, c *cli.Command) error {
 
 func printVersion(cmd *cli.Command) {
 	info := version.Info()
-	_, _ = fmt.Fprintf(cmd.Root().Writer, "%s version %s\nrevision %s\nbuild_time %s\n",
+	_, err := fmt.Fprintf(cmd.Root().Writer, "%s version %s\nrevision %s\nbuild_time %s\n",
 		cmd.Name, info.Version, info.Revision, info.BuildTime)
+	if err != nil {
+		slog.Error("write version", "error_message", err.Error())
+	}
 }

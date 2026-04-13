@@ -57,7 +57,12 @@ func Setup(cfg config.Logging, setupOpts ...SetupOption) (func(), error) {
 		if err != nil {
 			return nil, fmt.Errorf("open log file: %w", err)
 		}
-		cleanup = func() { _ = f.Close() }
+		cleanup = func() {
+			if err := f.Close(); err != nil {
+				// Stderr: log file may be unusable after a failed close.
+				slog.Error("close log file", "error_message", err)
+			}
+		}
 		w = f
 	default:
 		return nil, fmt.Errorf("unsupported log stream %q", cfg.Stream)

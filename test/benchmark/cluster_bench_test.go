@@ -22,6 +22,7 @@ package benchmark_test
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"sync"
 	"testing"
@@ -92,7 +93,9 @@ func setupBenchRedpanda(b *testing.B) []string {
 func TestMain(m *testing.M) {
 	code := m.Run()
 	if benchTerminate != nil {
-		_ = benchTerminate(context.Background())
+		if err := benchTerminate(context.Background()); err != nil {
+			slog.Error("benchmark teardown", "error_message", err)
+		}
 	}
 	os.Exit(code)
 }
