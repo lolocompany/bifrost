@@ -1,0 +1,28 @@
+---
+description: 
+globs: **/*.go
+alwaysApply: false
+---
+
+# Go quality reviewer subagent skill
+
+**Read and follow** [`.cursor/skills/go-quality-reviewer-subagent/SKILL.md`](../skills/go-quality-reviewer-subagent/SKILL.md) whenever the situation matches **any** of the below. The skill tells you how to delegate **`go-quality-reviewer`** (see [`.cursor/agents/go-quality-reviewer.md`](../agents/go-quality-reviewer.md)) or run the same review read-only yourself.
+
+## When to use this skill
+
+| Situation | Action |
+|-----|-----|
+| **During or after** implementing, refactoring, or fixing **Go** code | Use the skill: verify the **diff** or **touched paths** (like tests/linters). Implementation and fixes stay with you; the subagent only **reports**. |
+| User asks for **go quality review**, **standards / pattern review**, **idiomatic Go** audit, **verify quality**, **subagent review**, or names **`go-quality-reviewer`** | Use the skill immediately. |
+| **Substantive** changes under **`pkg/`**, **`cmd/`**, concurrency, or error handling | Propose or run verification **before merge** if not already done. |
+| User wants an **exhaustive** `file:line` list of issues plus **suggested fixes** (not auto-applied) | Use the skill. |
+
+## Do not
+
+- Skip this skill just because the user also wants **code changes**—use it to **verify** after or between edits.
+- Confuse roles: the **subagent** never edits; **you** apply fixes after the report.
+
+## Quick reference
+
+- Subagent name: **`go-quality-reviewer`** · prompt file: **`.cursor/agents/go-quality-reviewer.md`**
+- Writing bar: **`.cursor/rules/agent-golang-and-replies.mdc`** (while coding); this skill + subagent (while **checking**).

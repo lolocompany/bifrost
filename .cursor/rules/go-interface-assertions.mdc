@@ -1,6 +1,6 @@
 ---
-description: Compile-time assertions that a concrete type satisfies an interface (Go)
-globs: '**/*.go'
+description: 
+globs: **/*.go
 alwaysApply: false
 ---
 

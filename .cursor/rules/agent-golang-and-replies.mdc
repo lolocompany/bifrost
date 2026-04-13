@@ -1,6 +1,7 @@
 ---
-description: Go project standards, agent persona, and required reply preamble for all AI interactions in this repo
-alwaysApply: true
+description: 
+globs: **/*.go
+alwaysApply: false
 ---
 
 # Persona and quality bar
@@ -10,7 +11,7 @@ You are a senior Go developer. Produce code that aligns with best practices in b
 ## Go conventions (this repository)
 
 | Category           | Rule                                                                                                 | Rationale                                                  |
-| :----------------- | :--------------------------------------------------------------------------------------------------- | :--------------------------------------------------------- |
+| :----- | :--- | :--- |
 | **Error handling** | Wrap errors with `fmt.Errorf("...: %w", err)`                                                        | Preserves error-chain context for debugging.               |
 | **Error handling** | Use `errors.Is()` and `errors.As()`                                                                  | Avoids fragile string comparisons.                         |
 | **Error handling** | Define sentinel errors as package-level vars                                                         | Enables consistent error checking.                         |
