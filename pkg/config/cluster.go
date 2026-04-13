@@ -1,8 +1,12 @@
 package config
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
+	"net"
+	"os"
 	"strings"
 	"time"
 )
@@ -56,9 +60,10 @@ type ConsumerSettings struct {
 	FetchMaxWait           string `yaml:"fetch_max_wait"`
 	SessionTimeout         string `yaml:"session_timeout"`
 	// HeartbeatInterval must be < session_timeout when both are set; rebalance_timeout must be >= session_timeout when both are set.
-	HeartbeatInterval string `yaml:"heartbeat_interval"`
-	RebalanceTimeout  string `yaml:"rebalance_timeout"`
-	IsolationLevel    string `yaml:"isolation_level"` // read_uncommitted (default), read_committed
+	HeartbeatInterval string        `yaml:"heartbeat_interval"`
+	RebalanceTimeout  string        `yaml:"rebalance_timeout"`
+	IsolationLevel    string        `yaml:"isolation_level"` // read_uncommitted (default), read_committed
+	CommitRetry       RetrySettings `yaml:"commit_retry"`
 }
 
 // ProducerSettings configures the producer client used on the to side of a bridge.
@@ -73,10 +78,38 @@ type ProducerSettings struct {
 	// BatchCompression: snappy, zstd, lz4, gzip, none; empty uses franz-go defaults.
 	BatchCompression string `yaml:"batch_compression"`
 
-	Linger                 string `yaml:"linger"`
-	ProduceRequestTimeout  string `yaml:"produce_request_timeout"`
-	DisableIdempotentWrite *bool  `yaml:"disable_idempotent_write"`
+	Linger                 string        `yaml:"linger"`
+	ProduceRequestTimeout  string        `yaml:"produce_request_timeout"`
+	DisableIdempotentWrite *bool         `yaml:"disable_idempotent_write"`
+	Retry                  RetrySettings `yaml:"retry"`
 }
+
+// RetrySettings configures unbounded retry with exponential backoff and additive jitter.
+type RetrySettings struct {
+	MinBackoff string `yaml:"min_backoff"`
+	MaxBackoff string `yaml:"max_backoff"`
+	Jitter     string `yaml:"jitter"`
+}
+
+// RetryDurations holds parsed retry durations ready for runtime use.
+type RetryDurations struct {
+	MinBackoff time.Duration
+	MaxBackoff time.Duration
+	Jitter     time.Duration
+}
+
+var (
+	DefaultProducerRetry = RetryDurations{
+		MinBackoff: time.Second,
+		MaxBackoff: 30 * time.Second,
+		Jitter:     250 * time.Millisecond,
+	}
+	DefaultCommitRetry = RetryDurations{
+		MinBackoff: time.Second,
+		MaxBackoff: 30 * time.Second,
+		Jitter:     250 * time.Millisecond,
+	}
+)
 
 // TLS configures TLS for broker connections.
 type TLS struct {
@@ -100,6 +133,16 @@ func (c *Cluster) validate() error {
 	for i, b := range c.Brokers {
 		if strings.TrimSpace(b) == "" {
 			return fmt.Errorf("brokers[%d]: must not be empty", i)
+		}
+		host, port, err := net.SplitHostPort(b)
+		if err != nil {
+			return fmt.Errorf("brokers[%d]: must be host:port: %w", i, err)
+		}
+		if strings.TrimSpace(host) == "" {
+			return fmt.Errorf("brokers[%d]: host must not be empty", i)
+		}
+		if _, err := net.LookupPort("tcp", port); err != nil {
+			return fmt.Errorf("brokers[%d]: invalid port %q: %w", i, port, err)
 		}
 	}
 	if err := c.TLS.validate(); err != nil {
@@ -234,6 +277,9 @@ func (c *ConsumerSettings) validate() error {
 	default:
 		return fmt.Errorf("isolation_level: unsupported %q (use read_uncommitted, read_committed)", c.IsolationLevel)
 	}
+	if _, err := c.CommitRetry.Durations("commit_retry", DefaultCommitRetry); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -258,7 +304,53 @@ func (p *ProducerSettings) validate() error {
 			return err
 		}
 	}
+	if _, err := p.Retry.Durations("retry", DefaultProducerRetry); err != nil {
+		return err
+	}
 	return nil
+}
+
+func (r RetrySettings) Durations(field string, defaults RetryDurations) (RetryDurations, error) {
+	out := defaults
+
+	if s := strings.TrimSpace(r.MinBackoff); s != "" {
+		d, err := time.ParseDuration(s)
+		if err != nil {
+			return RetryDurations{}, fmt.Errorf("%s.min_backoff: parse duration: %w", field, err)
+		}
+		if d <= 0 {
+			return RetryDurations{}, fmt.Errorf("%s.min_backoff: must be positive", field)
+		}
+		out.MinBackoff = d
+	}
+
+	if s := strings.TrimSpace(r.MaxBackoff); s != "" {
+		d, err := time.ParseDuration(s)
+		if err != nil {
+			return RetryDurations{}, fmt.Errorf("%s.max_backoff: parse duration: %w", field, err)
+		}
+		if d <= 0 {
+			return RetryDurations{}, fmt.Errorf("%s.max_backoff: must be positive", field)
+		}
+		out.MaxBackoff = d
+	}
+
+	if s := strings.TrimSpace(r.Jitter); s != "" {
+		d, err := time.ParseDuration(s)
+		if err != nil {
+			return RetryDurations{}, fmt.Errorf("%s.jitter: parse duration: %w", field, err)
+		}
+		if d < 0 {
+			return RetryDurations{}, fmt.Errorf("%s.jitter: must not be negative", field)
+		}
+		out.Jitter = d
+	}
+
+	if out.MaxBackoff < out.MinBackoff {
+		return RetryDurations{}, fmt.Errorf("%s.max_backoff (%v) must be >= %s.min_backoff (%v)", field, out.MaxBackoff, field, out.MinBackoff)
+	}
+
+	return out, nil
 }
 
 func validRequiredAcks(s string) error {
@@ -283,9 +375,22 @@ func (t *TLS) validate() error {
 	if t == nil || !t.Enabled {
 		return nil
 	}
+	if t.CAFile != "" {
+		ca, err := os.ReadFile(t.CAFile)
+		if err != nil {
+			return fmt.Errorf("ca_file: %w", err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(ca) {
+			return errors.New("ca_file: no valid PEM certificates")
+		}
+	}
 	if t.CertFile != "" || t.KeyFile != "" {
 		if t.CertFile == "" || t.KeyFile == "" {
 			return errors.New("cert_file and key_file must both be set for mutual TLS")
+		}
+		if _, err := tls.LoadX509KeyPair(t.CertFile, t.KeyFile); err != nil {
+			return fmt.Errorf("client certificate: %w", err)
 		}
 	}
 	return nil
@@ -303,6 +408,9 @@ func (s *SASL) validate() error {
 	case "plain", "scram-sha-256", "scram-sha-512":
 		if strings.TrimSpace(s.Username) == "" {
 			return fmt.Errorf("username is required for mechanism %q", mech)
+		}
+		if strings.TrimSpace(s.Password) == "" {
+			return fmt.Errorf("password is required for mechanism %q", mech)
 		}
 	default:
 		return fmt.Errorf("unsupported mechanism %q (use none, plain, scram-sha-256, scram-sha-512)", s.Mechanism)

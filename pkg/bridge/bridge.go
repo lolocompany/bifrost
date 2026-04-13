@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"sync/atomic"
 	"time"
 
@@ -19,28 +20,84 @@ type MetricsReporter interface {
 	ObserveProduceDuration(id Identity, seconds float64)
 }
 
+// FetchResult is the consumed batch surface used by RunWithClients.
+type FetchResult interface {
+	Err() error
+	NumRecords() int
+	Records() []*kgo.Record
+}
+
+// ProduceResult is the synchronous produce result surface used by RunWithClients.
+type ProduceResult interface {
+	FirstErr() error
+}
+
+// ConsumerClient is the minimal consumer surface required by the relay loop.
+type ConsumerClient interface {
+	PollFetches(context.Context) FetchResult
+	CommitRecords(context.Context, ...*kgo.Record) error
+}
+
+// ProducerClient is the minimal producer surface required by the relay loop.
+type ProducerClient interface {
+	ProduceSync(context.Context, *kgo.Record) ProduceResult
+}
+
+// RetryConfig configures unbounded retry with exponential backoff and additive jitter.
+type RetryConfig struct {
+	MinBackoff time.Duration
+	MaxBackoff time.Duration
+	Jitter     time.Duration
+}
+
+// RetryPolicy defines retry behavior for transient relay stages.
+type RetryPolicy struct {
+	Produce RetryConfig
+	Commit  RetryConfig
+}
+
+// RunOptions configures the relay loop.
+type RunOptions struct {
+	PeriodicStatsInterval time.Duration
+	Retry                 RetryPolicy
+	Sleep                 func(context.Context, time.Duration) error
+	Jitter                func(time.Duration) time.Duration
+}
+
+var defaultRetryConfig = RetryConfig{
+	MinBackoff: time.Second,
+	MaxBackoff: 30 * time.Second,
+	Jitter:     250 * time.Millisecond,
+}
+
 // Run consumes from the from-side cluster, produces to the to-side cluster, and commits
 // from-side offsets after each successful write on the to side. Each produced record includes
 // bifrost.source.* headers (see AppendSourceHeaders) before any copied source headers.
 //
-// When periodicStatsInterval is greater than zero, Run logs info-level "bridge periodic stats"
+// When PeriodicStatsInterval is greater than zero, Run logs info-level "bridge periodic stats"
 // on that interval with messages_delta and errors_delta since the previous log.
-func Run(ctx context.Context, id Identity, consumer, producer *kgo.Client, m MetricsReporter, periodicStatsInterval time.Duration) error {
+func Run(ctx context.Context, id Identity, consumer, producer *kgo.Client, m MetricsReporter, opts RunOptions) error {
 	if consumer == nil || producer == nil {
 		return errors.New("kafka clients must not be nil")
 	}
+	return RunWithClients(ctx, id, kgoConsumer{client: consumer}, kgoProducer{client: producer}, m, opts)
+}
+
+// RunWithClients executes the relay loop against abstract consumer and producer clients.
+func RunWithClients(ctx context.Context, id Identity, consumer ConsumerClient, producer ProducerClient, m MetricsReporter, opts RunOptions) error {
 	if m == nil {
 		return errors.New("metrics must not be nil")
 	}
+	opts = opts.withDefaults()
 	log := slog.With("bridge", id.BridgeName, "from_topic", id.FromTopic, "to_topic", id.ToTopic)
 
 	var msgsRelayed, errorsSeen atomic.Uint64
 	stopStats := func() {}
-	if periodicStatsInterval > 0 {
+	if opts.PeriodicStatsInterval > 0 {
 		statsCtx, cancel := context.WithCancel(ctx)
 		stopStats = cancel
 		go func() {
-			ticker := time.NewTicker(periodicStatsInterval)
+			ticker := time.NewTicker(opts.PeriodicStatsInterval)
 			defer ticker.Stop()
 			lastTick := time.Now()
 			for {
@@ -70,7 +127,8 @@ func Run(ctx context.Context, id Identity, consumer, producer *kgo.Client, m Met
 		if err := fetches.Err(); err != nil {
 			m.IncErrors(id, "poll")
 			errorsSeen.Add(1)
-			return fmt.Errorf("poll fetches: %w", err)
+			log.Warn("poll fetches failed; retrying immediately", "stage", "poll", "error_message", err.Error())
+			continue
 		}
 		if fetches.NumRecords() == 0 {
 			continue
@@ -96,22 +154,167 @@ func Run(ctx context.Context, id Identity, consumer, producer *kgo.Client, m Met
 				Timestamp: r.Timestamp,
 			}
 
-			start := time.Now()
-			res := producer.ProduceSync(ctx, out)
-			if err := res.FirstErr(); err != nil {
-				m.IncErrors(id, "produce")
-				errorsSeen.Add(1)
+			var produceStart time.Time
+			if err := retryStage(ctx, log, "produce", opts.Retry.Produce, &errorsSeen, m, id, opts, func() error {
+				produceStart = time.Now()
+				return producer.ProduceSync(ctx, out).FirstErr()
+			}); err != nil {
 				return fmt.Errorf("produce to %q: %w", id.ToTopic, err)
 			}
-			m.ObserveProduceDuration(id, time.Since(start).Seconds())
+			m.ObserveProduceDuration(id, time.Since(produceStart).Seconds())
 
-			if err := consumer.CommitRecords(ctx, r); err != nil {
-				m.IncErrors(id, "commit")
-				errorsSeen.Add(1)
+			if err := retryStage(ctx, log, "commit", opts.Retry.Commit, &errorsSeen, m, id, opts, func() error {
+				return consumer.CommitRecords(ctx, r)
+			}); err != nil {
 				return fmt.Errorf("commit from-side offsets: %w", err)
 			}
 			m.IncMessages(id)
 			msgsRelayed.Add(1)
 		}
 	}
+}
+
+type kgoConsumer struct {
+	client *kgo.Client
+}
+
+func (c kgoConsumer) PollFetches(ctx context.Context) FetchResult {
+	return kgoFetches{fetches: c.client.PollFetches(ctx)}
+}
+
+func (c kgoConsumer) CommitRecords(ctx context.Context, records ...*kgo.Record) error {
+	return c.client.CommitRecords(ctx, records...)
+}
+
+type kgoProducer struct {
+	client *kgo.Client
+}
+
+func (p kgoProducer) ProduceSync(ctx context.Context, record *kgo.Record) ProduceResult {
+	return kgoProduceResults{results: p.client.ProduceSync(ctx, record)}
+}
+
+type kgoFetches struct {
+	fetches kgo.Fetches
+}
+
+func (f kgoFetches) Err() error             { return f.fetches.Err() }
+func (f kgoFetches) NumRecords() int        { return f.fetches.NumRecords() }
+func (f kgoFetches) Records() []*kgo.Record { return f.fetches.Records() }
+
+type kgoProduceResults struct {
+	results kgo.ProduceResults
+}
+
+func (r kgoProduceResults) FirstErr() error { return r.results.FirstErr() }
+
+func (o RunOptions) withDefaults() RunOptions {
+	if o.Sleep == nil {
+		o.Sleep = sleepContext
+	}
+	if o.Jitter == nil {
+		o.Jitter = randomJitter
+	}
+	o.Retry.Produce = withRetryDefaults(o.Retry.Produce)
+	o.Retry.Commit = withRetryDefaults(o.Retry.Commit)
+	return o
+}
+
+func withRetryDefaults(cfg RetryConfig) RetryConfig {
+	if cfg == (RetryConfig{}) {
+		return defaultRetryConfig
+	}
+	return cfg
+}
+
+func retryStage(
+	ctx context.Context,
+	log *slog.Logger,
+	stage string,
+	cfg RetryConfig,
+	errorsSeen *atomic.Uint64,
+	m MetricsReporter,
+	id Identity,
+	opts RunOptions,
+	op func() error,
+) error {
+	attempt := 0
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := op(); err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
+			m.IncErrors(id, stage)
+			errorsSeen.Add(1)
+			attempt++
+			base, jitter, sleepFor := retryDelay(attempt, cfg, opts.Jitter)
+			log.Warn("bridge stage failed; retrying",
+				"stage", stage,
+				"attempt", attempt,
+				"error_message", err.Error(),
+				"base_backoff", base.String(),
+				"jitter", jitter.String(),
+				"sleep", sleepFor.String(),
+			)
+			if err := opts.Sleep(ctx, sleepFor); err != nil {
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return ctxErr
+				}
+				return err
+			}
+			continue
+		}
+		return nil
+	}
+}
+
+func retryDelay(attempt int, cfg RetryConfig, jitterFn func(time.Duration) time.Duration) (time.Duration, time.Duration, time.Duration) {
+	base := cfg.MinBackoff
+	for i := 1; i < attempt; i++ {
+		if base >= cfg.MaxBackoff {
+			base = cfg.MaxBackoff
+			break
+		}
+		if base > cfg.MaxBackoff/2 {
+			base = cfg.MaxBackoff
+			break
+		}
+		base *= 2
+	}
+	jitter := time.Duration(0)
+	if cfg.Jitter > 0 && jitterFn != nil {
+		jitter = jitterFn(cfg.Jitter)
+		if jitter < 0 {
+			jitter = 0
+		}
+		if jitter > cfg.Jitter {
+			jitter = cfg.Jitter
+		}
+	}
+	return base, jitter, base + jitter
+}
+
+func sleepContext(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return ctx.Err()
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func randomJitter(max time.Duration) time.Duration {
+	if max <= 0 {
+		return 0
+	}
+	// #nosec G404 -- retry jitter only needs statistical spread, not cryptographic randomness.
+	return time.Duration(rand.Int64N(int64(max) + 1))
 }

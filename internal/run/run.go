@@ -109,7 +109,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 			continue
 		}
 		toCluster := cfg.Clusters[clusterName]
-		p, err := bifrostkafka.NewProducer(&toCluster, kafkaClientHooks(brokerMetrics, clusterName), brokerMetrics.TCPDialRecorder(clusterName))
+		p, err := bifrostkafka.NewProducer(&toCluster, kafkaClientHooks(brokerMetrics, clusterName), tcpDialRecorder(brokerMetrics, clusterName))
 		if err != nil {
 			return fmt.Errorf("producer %q: %w", clusterName, err)
 		}
@@ -141,12 +141,16 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	for _, br := range cfg.Bridges {
 		g.Go(func() error {
 			fromCluster := cfg.Clusters[br.From.Cluster]
+			runOpts, err := bridgeRunOptions(periodicStatsInterval, fromCluster, cfg.Clusters[br.To.Cluster])
+			if err != nil {
+				return fmt.Errorf("bridge %q retry config: %w", br.Name, err)
+			}
 			consumer, err := bifrostkafka.NewConsumerForBridge(
 				&fromCluster,
 				br.EffectiveConsumerGroup(),
 				br.From.Topic,
 				kafkaClientHooks(brokerMetrics, br.From.Cluster),
-				brokerMetrics.TCPDialRecorder(br.From.Cluster),
+				tcpDialRecorder(brokerMetrics, br.From.Cluster),
 			)
 			if err != nil {
 				return fmt.Errorf("bridge %q consumer: %w", br.Name, err)
@@ -172,7 +176,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 				"from_cluster", br.From.Cluster,
 				"to_cluster", br.To.Cluster,
 			)
-			if err := bridge.Run(gctx, bridge.IdentityFrom(br), consumer, producer, m, periodicStatsInterval); err != nil {
+			if err := bridge.Run(gctx, bridge.IdentityFrom(br), consumer, producer, m, runOpts); err != nil {
 				if errors.Is(err, context.Canceled) {
 					return nil
 				}
@@ -205,7 +209,7 @@ func ensureTopicsForCluster(
 	if p, ok := producerClients[clusterName]; ok {
 		cl = p
 	} else {
-		tmp, err := bifrostkafka.NewProducer(&clusterCfg, kafkaClientHooks(brokerMetrics, clusterName), brokerMetrics.TCPDialRecorder(clusterName))
+		tmp, err := bifrostkafka.NewProducer(&clusterCfg, kafkaClientHooks(brokerMetrics, clusterName), tcpDialRecorder(brokerMetrics, clusterName))
 		if err != nil {
 			return fmt.Errorf("cluster %q auto_create_topics: %w", clusterName, err)
 		}
@@ -261,4 +265,37 @@ func kafkaClientHooks(broker *metrics.BrokerMetrics, cluster string) []kgo.Hook 
 		return nil
 	}
 	return []kgo.Hook{h}
+}
+
+func tcpDialRecorder(broker *metrics.BrokerMetrics, cluster string) func(float64) {
+	if broker == nil {
+		return nil
+	}
+	return broker.TCPDialRecorder(cluster)
+}
+
+func bridgeRunOptions(periodicStatsInterval time.Duration, fromCluster, toCluster config.Cluster) (bridge.RunOptions, error) {
+	commitRetry, err := fromCluster.Consumer.CommitRetry.Durations("consumer.commit_retry", config.DefaultCommitRetry)
+	if err != nil {
+		return bridge.RunOptions{}, err
+	}
+	produceRetry, err := toCluster.Producer.Retry.Durations("producer.retry", config.DefaultProducerRetry)
+	if err != nil {
+		return bridge.RunOptions{}, err
+	}
+	return bridge.RunOptions{
+		PeriodicStatsInterval: periodicStatsInterval,
+		Retry: bridge.RetryPolicy{
+			Produce: bridge.RetryConfig{
+				MinBackoff: produceRetry.MinBackoff,
+				MaxBackoff: produceRetry.MaxBackoff,
+				Jitter:     produceRetry.Jitter,
+			},
+			Commit: bridge.RetryConfig{
+				MinBackoff: commitRetry.MinBackoff,
+				MaxBackoff: commitRetry.MaxBackoff,
+				Jitter:     commitRetry.Jitter,
+			},
+		},
+	}, nil
 }

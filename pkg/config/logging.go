@@ -11,8 +11,7 @@ import (
 type Logging struct {
 	Level       string            `yaml:"level"`        // trace, debug, info, warn, error, fatal
 	Format      string            `yaml:"format"`       // json (default) or logfmt
-	Stream      string            `yaml:"stream"`       // stdout, stderr, file
-	FilePath    string            `yaml:"file_path"`    // required when stream is file
+	Stream      string            `yaml:"stream"`       // stdout or stderr
 	ExtraFields map[string]string `yaml:"extra_fields"` // always included on every log line
 	// PeriodicStatsInterval is how often each bridge logs relay stats (messages/errors since the
 	// previous log) at info level. Go duration syntax (e.g. "1m", "30s"). Empty defaults to "5m".
@@ -35,14 +34,9 @@ func (l *Logging) validate() error {
 	}
 	stream := strings.ToLower(strings.TrimSpace(l.Stream))
 	switch stream {
-	case "stdout", "stderr", "file":
+	case "stdout", "stderr":
 	default:
-		return fmt.Errorf("stream: unsupported %q (use stdout, stderr, file)", l.Stream)
-	}
-	if stream == "file" {
-		if strings.TrimSpace(l.FilePath) == "" {
-			return errors.New("file_path is required when stream is file")
-		}
+		return fmt.Errorf("stream: unsupported %q (use stdout, stderr)", l.Stream)
 	}
 	for k, v := range l.ExtraFields {
 		name := strings.TrimSpace(k)

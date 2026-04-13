@@ -2,6 +2,7 @@ package logging_test
 
 import (
 	"encoding/json"
+	"io"
 	"log/slog"
 	"os"
 	"strings"
@@ -12,38 +13,24 @@ import (
 )
 
 func TestSetup_JSONFieldsPresent(t *testing.T) {
-	tmp, err := os.CreateTemp(t.TempDir(), "bifrost-log-*.jsonl")
-	if err != nil {
-		t.Fatalf("CreateTemp: %v", err)
-	}
-	if err := tmp.Close(); err != nil {
-		t.Fatalf("Close temp file: %v", err)
-	}
+	line := captureStream(t, func() {
+		cleanup, err := logging.Setup(config.Logging{
+			Level:  "info",
+			Format: "json",
+			Stream: "stdout",
+			ExtraFields: map[string]string{
+				"schema_version": "1.0",
+				"service":        "bifrost",
+				"env":            "test",
+			},
+		}, logging.WithSoftwareVersion("1.2.3-test"))
+		if err != nil {
+			t.Fatalf("Setup: %v", err)
+		}
+		defer cleanup()
 
-	cleanup, err := logging.Setup(config.Logging{
-		Level:    "info",
-		Format:   "json",
-		Stream:   "file",
-		FilePath: tmp.Name(),
-		ExtraFields: map[string]string{
-			"schema_version": "1.0",
-			"service":        "bifrost",
-			"env":            "test",
-		},
-	}, logging.WithSoftwareVersion("1.2.3-test"))
-	if err != nil {
-		t.Fatalf("Setup: %v", err)
-	}
-	defer cleanup()
-
-	slog.Info("startup complete", "request_id", "r-1")
-	cleanup()
-
-	data, err := os.ReadFile(tmp.Name())
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	line := strings.TrimSpace(string(data))
+		slog.Info("startup complete", "request_id", "r-1")
+	})
 	if line == "" {
 		t.Fatal("expected log line")
 	}
@@ -72,36 +59,23 @@ func TestSetup_JSONFieldsPresent(t *testing.T) {
 }
 
 func TestSetup_LogfmtKeepsExtraFields(t *testing.T) {
-	tmp, err := os.CreateTemp(t.TempDir(), "bifrost-log-*.log")
-	if err != nil {
-		t.Fatalf("CreateTemp: %v", err)
-	}
-	if err := tmp.Close(); err != nil {
-		t.Fatalf("Close temp file: %v", err)
-	}
-	cleanup, err := logging.Setup(config.Logging{
-		Level:    "info",
-		Format:   "logfmt",
-		Stream:   "file",
-		FilePath: tmp.Name(),
-		ExtraFields: map[string]string{
-			"schema_version": "1.0",
-			"service":        "bifrost",
-		},
-	}, logging.WithSoftwareVersion("1.2.3-test"))
-	if err != nil {
-		t.Fatalf("Setup: %v", err)
-	}
-	defer cleanup()
+	line := captureStream(t, func() {
+		cleanup, err := logging.Setup(config.Logging{
+			Level:  "info",
+			Format: "logfmt",
+			Stream: "stdout",
+			ExtraFields: map[string]string{
+				"schema_version": "1.0",
+				"service":        "bifrost",
+			},
+		}, logging.WithSoftwareVersion("1.2.3-test"))
+		if err != nil {
+			t.Fatalf("Setup: %v", err)
+		}
+		defer cleanup()
 
-	slog.Info("bridge started")
-	cleanup()
-
-	data, err := os.ReadFile(tmp.Name())
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	line := strings.TrimSpace(string(data))
+		slog.Info("bridge started")
+	})
 	if line == "" {
 		t.Fatal("expected log line")
 	}
@@ -110,4 +84,42 @@ func TestSetup_LogfmtKeepsExtraFields(t *testing.T) {
 			t.Fatalf("logfmt line missing %q: %s", want, line)
 		}
 	}
+}
+
+func TestSetup_rejectsFileStream(t *testing.T) {
+	_, err := logging.Setup(config.Logging{
+		Level:  "info",
+		Format: "json",
+		Stream: "file",
+	})
+	if err == nil {
+		t.Fatal("expected unsupported file stream error")
+	}
+}
+
+func captureStream(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("Pipe: %v", err)
+	}
+	oldStdout := os.Stdout
+	os.Stdout = w
+	defer func() {
+		os.Stdout = oldStdout
+	}()
+
+	fn()
+
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close writer: %v", err)
+	}
+	data, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+	if err := r.Close(); err != nil {
+		t.Fatalf("Close reader: %v", err)
+	}
+	return strings.TrimSpace(string(data))
 }

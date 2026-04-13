@@ -6,7 +6,7 @@
 
 **Observability**:
 
-- **Logs:** Structured log lines (JSON or logfmt), with configurable properties and target streams.
+- **Logs:** Structured log lines (JSON or logfmt), written to stdout or stderr with configurable extra fields.
 - **Metrics:** Prometheus endpoint (default `**http://0.0.0.0:9090/metrics`\*\*, configurable with `metrics.listen_addr`) with `bifrost_` application series plus standard `go_*` / `process_*` collector series.
 
 **Runtime requirement:** at least one **Kafka-compatible** broker (Apache Kafka, Redpanda, etc.) reachable from the host or container running bifrost.
@@ -81,6 +81,35 @@ bridges:
       topic: outgoing
 ```
 
+### Relay failure handling
+
+Bridge stages do not all fail the process the same way:
+
+- `poll fetches` errors are counted, logged, and retried immediately with no backoff.
+- Destination `produce` failures retry the same record in-place with exponential backoff plus additive jitter.
+- Source offset `commit` failures retry the same commit in-place with exponential backoff plus additive jitter.
+- Unexpected source-topic mismatches are treated as fatal and stop the bridge.
+
+Produce and commit retries are configured per cluster:
+
+```yaml
+clusters:
+  source:
+    consumer:
+      commit_retry:
+        min_backoff: "1s"
+        max_backoff: "30s"
+        jitter: "250ms"
+  destination:
+    producer:
+      retry:
+        min_backoff: "1s"
+        max_backoff: "30s"
+        jitter: "250ms"
+```
+
+If you omit these blocks, bifrost uses the same defaults shown above. Commit retries happen after a successful produce and retry the commit itself rather than re-producing the record, which reduces duplicate writes when Kafka acknowledges the produce but the offset commit fails.
+
 ### Development
 
 | Command                 | Purpose                                                                            |
@@ -112,6 +141,8 @@ Every relayed record includes **source coordinate** headers so consumers can tre
 ## Metrics
 
 When `metrics.enabled` is true (default), bifrost serves Prometheus metrics on `/metrics` at `metrics.listen_addr` (default `:9090`).
+
+The metrics endpoint is unauthenticated. Bind it to a trusted interface or restrict network access before exposing bifrost outside local or private infrastructure.
 
 Core `bifrost_relay_*` bridge metrics are always exported when metrics are enabled. Optional families are controlled by `metrics.groups` (default enabled when omitted):
 

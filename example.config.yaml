@@ -57,6 +57,13 @@ clusters:
     #   rebalance_timeout: "60s"
     #   # Optional isolation level: read_uncommitted (default) or read_committed.
     #   isolation_level: "read_uncommitted"
+    #   # Optional retry policy for source offset commits after a successful produce.
+    #   # Retries continue in-place until success or shutdown/cancellation.
+    #   # Defaults when omitted: min_backoff=1s, max_backoff=30s, jitter=250ms.
+    #   commit_retry:
+    #     min_backoff: "1s"
+    #     max_backoff: "30s"
+    #     jitter: "250ms"
 
     # Optional producer tuning for to-side bridge clients.
     # producer:
@@ -72,6 +79,13 @@ clusters:
     #   produce_request_timeout: "30s"
     #   # Optional: disable idempotent writes.
     #   disable_idempotent_write: false
+    #   # Optional retry policy for destination produce failures.
+    #   # Retries continue in-place until success or shutdown/cancellation.
+    #   # Defaults when omitted: min_backoff=1s, max_backoff=30s, jitter=250ms.
+    #   retry:
+    #     min_backoff: "1s"
+    #     max_backoff: "30s"
+    #     jitter: "250ms"
 
   cluster_b:
     brokers:
@@ -115,7 +129,7 @@ logging:
   level: 'info'
   # Output format: json (default) or logfmt.
   format: 'json'
-  # Output stream: stdout, stderr, or file.
+  # Output stream: stdout or stderr.
   stream: 'stdout'
   # Optional fields injected into every log line.
   extra_fields:
@@ -126,5 +140,3 @@ logging:
   # since the previous log, plus period_seconds). Go duration syntax (e.g. 30s, 5m). Default 5m.
   # Set to "0" or "0s" to disable.
   periodic_stats_interval: '5m'
-  # Required only when stream=file.
-  # file_path: "/var/log/bifrost.log"

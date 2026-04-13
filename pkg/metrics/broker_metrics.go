@@ -140,7 +140,6 @@ func (f *franzHook) OnBrokerConnect(_ kgo.BrokerMetadata, initDur time.Duration,
 	}
 	tc := tlsConn(conn)
 	if tc == nil {
-		bm.TLS.handshakeErrs.WithLabelValues(cname).Inc()
 		return
 	}
 	st := tc.ConnectionState()

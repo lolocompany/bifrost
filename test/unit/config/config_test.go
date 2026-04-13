@@ -535,3 +535,347 @@ func TestExampleConfigParses(t *testing.T) {
 		t.Fatalf("Parse example.config.yaml: %v", err)
 	}
 }
+
+func TestParse_rejectsSASLMechanismWithoutPassword(t *testing.T) {
+	const yamlDoc = `
+clusters:
+  east:
+    brokers: ["127.0.0.1:9092"]
+    sasl:
+      mechanism: plain
+      username: alice
+bridges:
+  - name: east-loop
+    from: { cluster: east, topic: in }
+    to: { cluster: east, topic: out }
+metrics:
+  enabled: false
+logging:
+  level: info
+  stream: stdout
+`
+	_, err := config.Parse([]byte(yamlDoc))
+	if err == nil {
+		t.Fatal("expected error for SASL mechanism without password")
+	}
+}
+
+func TestParse_rejectsUnknownTopLevelField(t *testing.T) {
+	const yamlDoc = `
+clusters:
+  east:
+    brokers: ["127.0.0.1:9092"]
+bridges:
+  - name: east-loop
+    from: { cluster: east, topic: in }
+    to: { cluster: east, topic: out }
+metrics:
+  enabled: false
+logging:
+  level: info
+  stream: stdout
+unexpected_top_level: true
+`
+	_, err := config.Parse([]byte(yamlDoc))
+	if err == nil {
+		t.Fatal("expected error for unknown top-level field")
+	}
+}
+
+func TestParse_rejectsUnknownNestedField(t *testing.T) {
+	const yamlDoc = `
+clusters:
+  east:
+    brokers: ["127.0.0.1:9092"]
+bridges:
+  - name: east-loop
+    from: { cluster: east, topic: in }
+    to: { cluster: east, topic: out }
+metrics:
+  enabled: false
+logging:
+  level: info
+  stream: stdout
+  bogus_field: true
+`
+	_, err := config.Parse([]byte(yamlDoc))
+	if err == nil {
+		t.Fatal("expected error for unknown nested logging field")
+	}
+}
+
+func TestParse_strictDecodingStillAllowsArbitraryMapKeys(t *testing.T) {
+	const yamlDoc = `
+clusters:
+  east:
+    brokers: ["127.0.0.1:9092"]
+bridges:
+  - name: east-loop
+    from: { cluster: east, topic: in }
+    to: { cluster: east, topic: out }
+metrics:
+  enabled: true
+  listen_addr: ":9090"
+  extra_labels:
+    service: bifrost
+    env: test
+logging:
+  level: info
+  stream: stdout
+  extra_fields:
+    schema_version: "1.0"
+    service: bifrost
+`
+	cfg, err := config.Parse([]byte(yamlDoc))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if cfg.Metrics.ExtraLabels["service"] != "bifrost" {
+		t.Fatalf("metrics.extra_labels.service: %q", cfg.Metrics.ExtraLabels["service"])
+	}
+	if cfg.Logging.ExtraFields["schema_version"] != "1.0" {
+		t.Fatalf("logging.extra_fields.schema_version: %q", cfg.Logging.ExtraFields["schema_version"])
+	}
+}
+
+func TestParse_rejectsInvalidBrokerAddress(t *testing.T) {
+	const yamlDoc = `
+clusters:
+  east:
+    brokers: ["localhost"]
+bridges:
+  - name: east-loop
+    from: { cluster: east, topic: in }
+    to: { cluster: east, topic: out }
+metrics:
+  enabled: false
+logging:
+  level: info
+  stream: stdout
+`
+	_, err := config.Parse([]byte(yamlDoc))
+	if err == nil {
+		t.Fatal("expected error for broker without host:port")
+	}
+}
+
+func TestParse_rejectsInvalidTLSCAFile(t *testing.T) {
+	const yamlDoc = `
+clusters:
+  east:
+    brokers: ["127.0.0.1:9092"]
+    tls:
+      enabled: true
+      ca_file: "/definitely/missing/ca.pem"
+bridges:
+  - name: east-loop
+    from: { cluster: east, topic: in }
+    to: { cluster: east, topic: out }
+metrics:
+  enabled: false
+logging:
+  level: info
+  stream: stdout
+`
+	_, err := config.Parse([]byte(yamlDoc))
+	if err == nil {
+		t.Fatal("expected error for invalid tls.ca_file")
+	}
+}
+
+func TestParse_rejectsFileLoggingStream(t *testing.T) {
+	const yamlDoc = `
+clusters:
+  east:
+    brokers: ["127.0.0.1:9092"]
+bridges:
+  - name: east-loop
+    from: { cluster: east, topic: in }
+    to: { cluster: east, topic: out }
+metrics:
+  enabled: false
+logging:
+  level: info
+  stream: file
+`
+	_, err := config.Parse([]byte(yamlDoc))
+	if err == nil {
+		t.Fatal("expected error for unsupported file logging stream")
+	}
+}
+
+func TestParse_normalizesWhitespaceAcrossConfig(t *testing.T) {
+	const yamlDoc = `
+clusters:
+  " east ":
+    brokers: [" 127.0.0.1:9092 "]
+bridges:
+  - name: " east-to-east "
+    from: { cluster: " east ", topic: " in " }
+    to: { cluster: " east ", topic: " out " }
+    consumer_group: " cg-east "
+metrics:
+  enabled: false
+  extra_labels:
+    " service ": " bifrost "
+logging:
+  level: " info "
+  format: " json "
+  stream: " stdout "
+  extra_fields:
+    " schema_version ": " 1.0 "
+`
+	cfg, err := config.Parse([]byte(yamlDoc))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	east, ok := cfg.Clusters["east"]
+	if !ok {
+		t.Fatalf("expected normalized cluster key %q in %#v", "east", cfg.Clusters)
+	}
+	if east.Brokers[0] != "127.0.0.1:9092" {
+		t.Fatalf("normalized broker: got %q", east.Brokers[0])
+	}
+	if cfg.Bridges[0].Name != "east-to-east" {
+		t.Fatalf("normalized bridge name: got %q", cfg.Bridges[0].Name)
+	}
+	if cfg.Bridges[0].From.Topic != "in" || cfg.Bridges[0].To.Topic != "out" {
+		t.Fatalf("normalized topics: from=%q to=%q", cfg.Bridges[0].From.Topic, cfg.Bridges[0].To.Topic)
+	}
+	if cfg.Bridges[0].ConsumerGroup != "cg-east" {
+		t.Fatalf("normalized consumer group: got %q", cfg.Bridges[0].ConsumerGroup)
+	}
+	if cfg.Logging.Stream != "stdout" || cfg.Logging.Level != "info" || cfg.Logging.Format != "json" {
+		t.Fatalf("normalized logging config: %#v", cfg.Logging)
+	}
+	if cfg.Logging.ExtraFields["schema_version"] != "1.0" {
+		t.Fatalf("normalized extra field: %#v", cfg.Logging.ExtraFields)
+	}
+	if cfg.Metrics.ExtraLabels["service"] != "bifrost" {
+		t.Fatalf("normalized extra label: %#v", cfg.Metrics.ExtraLabels)
+	}
+}
+
+func TestParse_retryConfigParses(t *testing.T) {
+	const yamlDoc = `
+clusters:
+  east:
+    brokers: ["127.0.0.1:9092"]
+    consumer:
+      commit_retry:
+        min_backoff: "250ms"
+        max_backoff: "5s"
+        jitter: "50ms"
+    producer:
+      retry:
+        min_backoff: "500ms"
+        max_backoff: "10s"
+        jitter: "100ms"
+bridges:
+  - name: east-loop
+    from: { cluster: east, topic: in }
+    to: { cluster: east, topic: out }
+metrics:
+  enabled: false
+logging:
+  level: info
+  stream: stdout
+`
+	cfg, err := config.Parse([]byte(yamlDoc))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if cfg.Clusters["east"].Consumer.CommitRetry.MinBackoff != "250ms" {
+		t.Fatalf("consumer.commit_retry.min_backoff: got %q", cfg.Clusters["east"].Consumer.CommitRetry.MinBackoff)
+	}
+	if cfg.Clusters["east"].Producer.Retry.MaxBackoff != "10s" {
+		t.Fatalf("producer.retry.max_backoff: got %q", cfg.Clusters["east"].Producer.Retry.MaxBackoff)
+	}
+}
+
+func TestParse_retryConfigRejectsInvalidDuration(t *testing.T) {
+	const yamlDoc = `
+clusters:
+  east:
+    brokers: ["127.0.0.1:9092"]
+    producer:
+      retry:
+        min_backoff: "fast"
+        max_backoff: "10s"
+bridges:
+  - name: east-loop
+    from: { cluster: east, topic: in }
+    to: { cluster: east, topic: out }
+metrics:
+  enabled: false
+logging:
+  level: info
+  stream: stdout
+`
+	_, err := config.Parse([]byte(yamlDoc))
+	if err == nil {
+		t.Fatal("expected error for invalid retry duration")
+	}
+}
+
+func TestParse_retryConfigRejectsMinGreaterThanMax(t *testing.T) {
+	const yamlDoc = `
+clusters:
+  east:
+    brokers: ["127.0.0.1:9092"]
+    consumer:
+      commit_retry:
+        min_backoff: "10s"
+        max_backoff: "1s"
+bridges:
+  - name: east-loop
+    from: { cluster: east, topic: in }
+    to: { cluster: east, topic: out }
+metrics:
+  enabled: false
+logging:
+  level: info
+  stream: stdout
+`
+	_, err := config.Parse([]byte(yamlDoc))
+	if err == nil {
+		t.Fatal("expected error when retry min_backoff > max_backoff")
+	}
+}
+
+func TestParse_retryConfigNormalizesWhitespace(t *testing.T) {
+	const yamlDoc = `
+clusters:
+  east:
+    brokers: ["127.0.0.1:9092"]
+    consumer:
+      commit_retry:
+        min_backoff: " 250ms "
+        max_backoff: " 5s "
+        jitter: " 50ms "
+    producer:
+      retry:
+        min_backoff: " 500ms "
+        max_backoff: " 10s "
+        jitter: " 100ms "
+bridges:
+  - name: east-loop
+    from: { cluster: east, topic: in }
+    to: { cluster: east, topic: out }
+metrics:
+  enabled: false
+logging:
+  level: info
+  stream: stdout
+`
+	cfg, err := config.Parse([]byte(yamlDoc))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if cfg.Clusters["east"].Consumer.CommitRetry.MinBackoff != "250ms" {
+		t.Fatalf("normalized consumer min_backoff: got %q", cfg.Clusters["east"].Consumer.CommitRetry.MinBackoff)
+	}
+	if cfg.Clusters["east"].Producer.Retry.Jitter != "100ms" {
+		t.Fatalf("normalized producer jitter: got %q", cfg.Clusters["east"].Producer.Retry.Jitter)
+	}
+}

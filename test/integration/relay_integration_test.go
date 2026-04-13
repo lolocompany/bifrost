@@ -97,7 +97,7 @@ func runBridgeRelayTest(t *testing.T, brokers []string) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- bridge.Run(bridgeCtx, id, consumer, producer, m, 0)
+		errCh <- bridge.Run(bridgeCtx, id, consumer, producer, m, bridge.RunOptions{})
 	}()
 
 	verify, err := kgo.NewClient(

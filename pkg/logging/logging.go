@@ -46,24 +46,11 @@ func Setup(cfg config.Logging, setupOpts ...SetupOption) (func(), error) {
 	}
 
 	var w io.Writer
-	cleanup := func() {}
 	switch cfg.StreamKey() {
 	case "stdout":
 		w = os.Stdout
 	case "stderr":
 		w = os.Stderr
-	case "file":
-		f, err := os.OpenFile(cfg.FilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-		if err != nil {
-			return nil, fmt.Errorf("open log file: %w", err)
-		}
-		cleanup = func() {
-			if err := f.Close(); err != nil {
-				// Stderr: log file may be unusable after a failed close.
-				slog.Error("close log file", "error_message", err)
-			}
-		}
-		w = f
 	default:
 		return nil, fmt.Errorf("unsupported log stream %q", cfg.Stream)
 	}
@@ -85,7 +72,7 @@ func Setup(cfg config.Logging, setupOpts ...SetupOption) (func(), error) {
 	}
 	logger := slog.New(h).With(append([]any{"software_version", o.softwareVersion}, extraArgs(cfg.ExtraFields)...)...)
 	slog.SetDefault(logger)
-	return cleanup, nil
+	return func() {}, nil
 }
 
 func extraArgs(fields map[string]string) []any {
