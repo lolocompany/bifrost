@@ -1,0 +1,18 @@
+---
+description: Align all code changes with docs/AGENTS.md (product terms, layout, naming, anti-patterns).
+alwaysApply: true
+---
+
+# Align with `docs/AGENTS.md`
+
+For **every modification to code** in this repository (new code, refactors, tests, wiring), follow **[docs/AGENTS.md](docs/AGENTS.md)** so changes stay consistent with product vocabulary, package boundaries, and repo conventions.
+
+**Before substantive edits**, skim or re-read `docs/AGENTS.md` (and the deeper references it lists for large work). Treat it as authoritative for:
+
+- **Terminology** — e.g. bridge vs relay vs process; `from` / `to`; relay orchestration in `pkg/bifrost`; avoiding ambiguous names like `bridgeRuntime`.
+- **Layout and responsibilities** — where `cmd/bifrost`, `pkg/bifrost`, `pkg/bridge`, `pkg/config`, `pkg/kafka`, `pkg/metrics`, and tests belong (`test/unit/<package>/` for `pkg/*` unit tests).
+- **Naming and imports** — e.g. avoiding `bridge` as a local that shadows the `pkg/bridge` import; action-oriented names in `pkg/bifrost`.
+- **Errors and metrics** — wrapping style; `bifrost_` / `bifrost_relay_*` naming as documented.
+- **Anti-patterns** — e.g. no catch-all `util` / `helpers` packages; tests for behavior changes in `pkg/` and relay wiring.
+
+If `docs/AGENTS.md` conflicts with a generic suggestion, **prefer `docs/AGENTS.md`**. When public behavior or major boundaries change, update `docs/AGENTS.md` in the same effort (per its maintainer note).

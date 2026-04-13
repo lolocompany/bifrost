@@ -121,6 +121,8 @@ If you omit these blocks, bifrost uses the same defaults shown above. Commit ret
 | `make lint`             | Run `go vet` and `golangci-lint`                                                   |
 | `make format`           | Run `go fmt` and `gofmt`                                                           |
 
+Contributor and agent-oriented notes on layout and naming: [`docs/AGENTS.md`](./docs/AGENTS.md).
+
 ---
 
 ## Downstream deduplication (source headers)
