@@ -28,14 +28,22 @@ func AppendSourceHeaders(hdrs []kgo.RecordHeader, id Identity, r *kgo.Record) []
 		Key:   HeaderSourceTopic,
 		Value: []byte(r.Topic),
 	})
+	part := r.Partition
+	if part < 0 {
+		part = 0
+	}
 	var partBuf [4]byte
-	binary.BigEndian.PutUint32(partBuf[:], uint32(r.Partition))
+	binary.BigEndian.PutUint32(partBuf[:], uint32(part))
 	hdrs = append(hdrs, kgo.RecordHeader{
 		Key:   HeaderSourcePartition,
 		Value: partBuf[:],
 	})
+	off := r.Offset
+	if off < 0 {
+		off = 0
+	}
 	var offBuf [8]byte
-	binary.BigEndian.PutUint64(offBuf[:], uint64(r.Offset))
+	binary.BigEndian.PutUint64(offBuf[:], uint64(off))
 	hdrs = append(hdrs, kgo.RecordHeader{
 		Key:   HeaderSourceOffset,
 		Value: offBuf[:],
