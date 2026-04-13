@@ -1,4 +1,7 @@
-// Package metrics registers Prometheus collectors for bifrost.
+// Package metrics registers Prometheus collectors for bifrost and can start the /metrics HTTP server.
+//
+// Use [NewFromConfig] for the full process setup (registry, collectors, listener). Use [New] when
+// you already have a [prometheus.Registerer].
 //
 // Naming follows Prometheus and OpenMetrics conventions (counters end with _total,
 // duration histograms use _duration_seconds, etc.). Application metrics use the bifrost_

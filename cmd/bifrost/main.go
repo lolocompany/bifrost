@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/lolocompany/bifrost/internal/run"
+	"github.com/lolocompany/bifrost/pkg/bifrost"
 	"github.com/lolocompany/bifrost/pkg/config"
 	"github.com/lolocompany/bifrost/pkg/logging"
 	"github.com/lolocompany/bifrost/pkg/version"
@@ -68,7 +68,7 @@ func runCLI(ctx context.Context, c *cli.Command) error {
 
 	slog.Info("config loaded", "config_path", filepath.Clean(path))
 
-	return run.Run(ctx, cfg)
+	return bifrost.Run(ctx, *cfg)
 }
 
 func printVersion(cmd *cli.Command) {

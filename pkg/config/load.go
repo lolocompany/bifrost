@@ -19,16 +19,6 @@ func Load(path string) (*Config, error) {
 	return Parse(data)
 }
 
-// MustLoad calls Load and panics if the file cannot be read or the config is invalid.
-// Prefer Load for library use; use MustLoad only when startup must abort the process on bad config.
-func MustLoad(path string) *Config {
-	cfg, err := Load(path)
-	if err != nil {
-		panic(fmt.Sprintf("bifrost: invalid config: %v", err))
-	}
-	return cfg
-}
-
 // Parse unmarshals YAML bytes into Config and validates it.
 func Parse(data []byte) (*Config, error) {
 	var cfg Config
