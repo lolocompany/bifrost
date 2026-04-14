@@ -117,7 +117,7 @@ If you omit these blocks, bifrost uses the same defaults shown above. Commit ret
 | `make build`            | Build `./bifrost` from source                                                      |
 | `make test`             | Run unit tests (`./test/unit/...`)                                                 |
 | `make test-integration` | Run Docker-backed integration tests (`BIFROST_INTEGRATION=1`)                      |
-| `make bench`            | Run benchmarks (`./test/benchmark/...`, Docker-backed throughput benches included) |
+| `make bench`            | Default subset; **one Redpanda container per benchmark** (isolated; slower than shared broker) |
 | `make lint`             | Run `go vet`, `go mod verify`, `govulncheck`, `gosec`, and `golangci-lint`         |
 | `make format`           | Run `go fmt` and `gofmt`                                                           |
 

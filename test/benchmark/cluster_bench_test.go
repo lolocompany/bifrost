@@ -4,7 +4,12 @@
 //
 //	BIFROST_BENCHMARK=1 go test -bench=. -benchmem ./test/benchmark/...
 //
-// or `make bench`.
+// or `make bench` (default: small benchmark subset; `make bench-all` for the full suite).
+//
+// Each benchmark that calls setupBenchRedpanda gets its own Redpanda container, started before
+// the benchmark body and terminated in b.Cleanup when the benchmark returns—no shared broker
+// across benchmarks, so results are not order-dependent. The first image pull can still take
+// several minutes on a cold machine; progress lines go to stderr only when BIFROST_BENCHMARK_VERBOSE=1.
 //
 // Interpreting results:
 //   - BenchmarkKafkaRoundTrip* — produce + consume one topic (no bridge). Compare to
@@ -22,9 +27,9 @@ package benchmark_test
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
-	"sync"
 	"testing"
 
 	"github.com/testcontainers/testcontainers-go"
@@ -51,12 +56,6 @@ const benchRedpandaImage = "docker.redpanda.com/redpandadata/redpanda:v24.3.11"
 // Redpanda defaults are too small for multi-megabyte records; these cluster properties raise broker limits.
 const benchBrokerMaxMessageBytes = 32 << 20
 
-var (
-	benchClusterOnce sync.Once
-	benchBrokers     []string
-	benchTerminate   func(context.Context, ...testcontainers.TerminateOption) error
-)
-
 func requireBenchmark(b *testing.B) {
 	b.Helper()
 	if os.Getenv("BIFROST_BENCHMARK") != "1" {
@@ -64,38 +63,42 @@ func requireBenchmark(b *testing.B) {
 	}
 }
 
-// setupBenchRedpanda starts a single Redpanda node once per test process (shared by all bridge benchmarks).
+// benchProgressf writes progress to stderr only when BIFROST_BENCHMARK_VERBOSE=1.
+func benchProgressf(format string, args ...any) {
+	if os.Getenv("BIFROST_BENCHMARK_VERBOSE") != "1" {
+		return
+	}
+	fmt.Fprintf(os.Stderr, format, args...)
+}
+
+// setupBenchRedpanda starts a dedicated Redpanda node for this benchmark and registers b.Cleanup
+// to terminate it when the benchmark finishes. Benchmarks do not share a broker, so results are
+// not sensitive to execution order relative to other benchmarks.
 func setupBenchRedpanda(b *testing.B) []string {
 	b.Helper()
 	requireBenchmark(b)
 	skipIfDockerUnhealthy(b)
 
-	benchClusterOnce.Do(func() {
-		ctx := context.Background()
-		ctr, err := redpanda.Run(ctx, benchRedpandaImage,
-			redpanda.WithAutoCreateTopics(),
-			// Default cluster batch cap is 1 MiB; large-record benchmarks need a higher ceiling (topic max.message.bytes inherits from this when unset).
-			redpanda.WithBootstrapConfig("kafka_batch_max_bytes", benchBrokerMaxMessageBytes),
-		)
-		if err != nil {
-			b.Fatalf("redpanda: %v", err)
-		}
-		benchTerminate = ctr.Terminate
-		seed, err := ctr.KafkaSeedBroker(ctx)
-		if err != nil {
-			b.Fatalf("KafkaSeedBroker: %v", err)
-		}
-		benchBrokers = []string{seed}
-	})
-	return benchBrokers
-}
-
-func TestMain(m *testing.M) {
-	code := m.Run()
-	if benchTerminate != nil {
-		if err := benchTerminate(context.Background()); err != nil {
-			slog.Error("benchmark teardown", "error_message", err)
-		}
+	ctx := context.Background()
+	benchProgressf("bifrost benchmark: starting Redpanda (Docker); first run may take several minutes while the image is pulled...\n")
+	ctr, err := redpanda.Run(ctx, benchRedpandaImage,
+		redpanda.WithAutoCreateTopics(),
+		// Default cluster batch cap is 1 MiB; large-record benchmarks need a higher ceiling (topic max.message.bytes inherits from this when unset).
+		redpanda.WithBootstrapConfig("kafka_batch_max_bytes", benchBrokerMaxMessageBytes),
+	)
+	if err != nil {
+		b.Fatalf("redpanda: %v", err)
 	}
-	os.Exit(code)
+	b.Cleanup(func() {
+		if err := ctr.Terminate(context.Background()); err != nil {
+			slog.Error("benchmark redpanda teardown", "error_message", err)
+		}
+	})
+
+	seed, err := ctr.KafkaSeedBroker(ctx)
+	if err != nil {
+		b.Fatalf("KafkaSeedBroker: %v", err)
+	}
+	benchProgressf("bifrost benchmark: Redpanda ready at %s\n", seed)
+	return []string{seed}
 }

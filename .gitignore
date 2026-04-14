@@ -43,3 +43,5 @@ go.work.sum
 bifrost
 !cmd/*
 !pkg/*
+bench.txt
+tmp

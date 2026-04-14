@@ -1,12 +1,13 @@
 # All targets are phony (no file named "build", "test", etc. should shadow these).
-.PHONY: bench bench-profile-block bench-profile-cpu bench-profile-mem bench-profile-trace \
+.PHONY: bench bench-all bench-full bench-profile-block bench-profile-cpu bench-profile-mem bench-profile-trace \
 	build build-docker format help lint test test-coverage test-integration
 
-# Wall-clock cap for go test (Docker pull + Redpanda; benchmark warmup drain can use up to 3m).
-BENCH_TIMEOUT ?= 10m
-
-# Default benchmark for profiling (override: make bench-profile-cpu BENCH=BenchmarkKafkaRoundTrip256B).
-BENCH ?= BenchmarkBridgeRelay256B
+# Isolated Redpanda per benchmark: wall time grows with container churn; allow a generous cap.
+BENCH_PATTERN ?= BenchmarkBridgeRelay256B|BenchmarkKafkaRoundTrip256B|BenchmarkBridgeRelayBurst256B
+BENCH_TIME ?= 2s
+BENCH_TIMEOUT ?= 30m
+# Set to empty or a higher value if you want more OS threads during a benchmark (default 1 = sequential CPU).
+BENCH_GOMAXPROCS ?= 1
 
 # Optional local revision/time for cmd/bifrost/version (matches CI-style ldflags).
 REV := $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
@@ -15,7 +16,9 @@ BUILD_TIME := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 help:
 	@echo "Usage: make <target>"
 	@echo "Targets:"
-	@printf '  %-30s %s\n' 'bench' 'Benchmarks (Docker; default timeout $(BENCH_TIMEOUT); override BENCH_TIMEOUT=...)'
+	@printf '  %-30s %s\n' 'bench' 'Benchmarks (Docker; default subset BENCH_PATTERN; BENCH_TIME=$(BENCH_TIME); timeout $(BENCH_TIMEOUT))'
+	@printf '  %-30s %s\n' 'bench-all' 'All benchmarks (-bench=.; same BENCH_TIME and BENCH_TIMEOUT)'
+	@printf '  %-30s %s\n' 'bench-full' 'All benchmarks, -count=5 (slow); summarize output with: go tool benchstat <file>'
 	@printf '  %-30s %s\n' 'bench-profile-block' 'Block profile + pprof -http (override BENCH=...)'
 	@printf '  %-30s %s\n' 'bench-profile-cpu' 'CPU profile + pprof -http (override BENCH=...)'
 	@printf '  %-30s %s\n' 'bench-profile-mem' 'Heap profile + pprof -http (override BENCH=...)'
@@ -40,7 +43,6 @@ format:
 	go fmt ./...
 	gofmt -w .
 
-
 build:
 	go build -trimpath -ldflags "-s -w -X github.com/lolocompany/bifrost/cmd/bifrost/version.Revision=$(REV) -X github.com/lolocompany/bifrost/cmd/bifrost/version.BuildTime=$(BUILD_TIME)" -o bifrost ./cmd/bifrost
 
@@ -48,10 +50,10 @@ build-docker:
 	docker build -t bifrost:local . --build-arg VERSION=local-dev-$(REV) --build-arg REVISION=$(REV) --build-arg BUILD_TIME=$(BUILD_TIME)
 
 test:
-	go test ./test/unit/...
+	go test -shuffle=on  ./test/unit/...
 
 test-integration:
-	BIFROST_INTEGRATION=1 go test ./test/integration/...
+	BIFROST_INTEGRATION=1 go test -shuffle=on  ./test/integration/...
 
 # Tests live under test/..., so default -cover only sees external test packages (no pkg statements) → 0%.
 # -coverpkg instruments pkg/ and cmd/ when those packages are exercised from test/ packages.
@@ -59,21 +61,28 @@ test-coverage:
 	BIFROST_INTEGRATION=1 go test -coverprofile=coverage.out -coverpkg=./pkg/... ./test/...
 	go tool cover -html=coverage.out
 
+# GOMAXPROCS=$(BENCH_GOMAXPROCS) and -p 1: one package worker; default one OS thread for stable CPU.
 bench:
-	BIFROST_BENCHMARK=1 go test -bench=. -benchmem -benchtime=5s -timeout=$(BENCH_TIMEOUT) ./test/benchmark/...
+	BIFROST_BENCHMARK=1 GOMAXPROCS=$(BENCH_GOMAXPROCS) go test -p 1 -bench='$(BENCH_PATTERN)' -benchmem -benchtime=$(BENCH_TIME) -timeout=$(BENCH_TIMEOUT) ./test/benchmark/... 2>&1 | tee bench.txt
+	go tool benchstat bench.txt
+
+# Run all benchmarks 6 times.
+bench-full:
+	BIFROST_BENCHMARK=1 GOMAXPROCS=$(BENCH_GOMAXPROCS) go test -count=6 -p 1 -bench=. -benchmem -benchtime=$(BENCH_TIME) -timeout=$(BENCH_TIMEOUT) ./test/benchmark/... 2>&1 | tee bench.txt
+	go tool benchstat bench.txt
 
 bench-profile-cpu:
-	BIFROST_BENCHMARK=1 go test -bench=$(BENCH) -benchmem -benchtime=10s -timeout=$(BENCH_TIMEOUT) -cpuprofile=test/benchmark/.prof/cpu.prof 	./test/benchmark/...
+	BIFROST_BENCHMARK=1 GOMAXPROCS=$(BENCH_GOMAXPROCS) go test -p 1 -bench=$(BENCH_PATTERN) -benchmem -benchtime=10s -timeout=$(BENCH_TIMEOUT) -cpuprofile=test/benchmark/.prof/cpu.prof 	./test/benchmark/...
 	go tool pprof -http=:5432 test/benchmark/.prof/cpu.prof
 
 bench-profile-block:
-	BIFROST_BENCHMARK=1 go test -bench=$(BENCH) -benchmem -benchtime=10s -timeout=$(BENCH_TIMEOUT) -blockprofile=test/benchmark/.prof/block.prof 	./test/benchmark/...
+	BIFROST_BENCHMARK=1 GOMAXPROCS=$(BENCH_GOMAXPROCS) go test -p 1 -bench=$(BENCH_PATTERN) -benchmem -benchtime=10s -timeout=$(BENCH_TIMEOUT) -blockprofile=test/benchmark/.prof/block.prof 	./test/benchmark/...
 	go tool pprof -http=:5432 test/benchmark/.prof/block.prof
 
 bench-profile-trace:
-	BIFROST_BENCHMARK=1 go test -bench=$(BENCH) -benchmem -benchtime=10s -timeout=$(BENCH_TIMEOUT) -trace=test/benchmark/.prof/trace.out 	./test/benchmark/...
+	BIFROST_BENCHMARK=1 GOMAXPROCS=$(BENCH_GOMAXPROCS) go test -p 1 -bench=$(BENCH_PATTERN) -benchmem -benchtime=10s -timeout=$(BENCH_TIMEOUT) -trace=test/benchmark/.prof/trace.out 	./test/benchmark/...
 	go tool trace test/benchmark/.prof/trace.out
 
 bench-profile-mem:
-	BIFROST_BENCHMARK=1 go test -bench=$(BENCH) -benchmem -benchtime=10s -timeout=$(BENCH_TIMEOUT) -memprofile=test/benchmark/.prof/mem.prof 	./test/benchmark/...
+	BIFROST_BENCHMARK=1 GOMAXPROCS=$(BENCH_GOMAXPROCS) go test -p 1 -bench=$(BENCH_PATTERN) -benchmem -benchtime=10s -timeout=$(BENCH_TIMEOUT) -memprofile=test/benchmark/.prof/mem.prof 	./test/benchmark/...
 	go tool pprof -http=:5432 test/benchmark/.prof/mem.prof

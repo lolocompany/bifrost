@@ -14,6 +14,38 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
+// benchDrainJoinTimeout bounds how long we wait for verify PollFetches to return enough records.
+// The verify client uses direct topic consumption (no consumer group), so this is mostly fetch
+// latency and metadata—not multi-minute group join/sync stalls.
+const benchDrainJoinTimeout = 3 * time.Minute
+
+// benchSmokeDrainTimeout caps post-timer verification: draining every relayed record would take
+// O(b.N) PollFetches and can dominate wall time; integration tests cover full E2E correctness.
+const benchSmokeDrainTimeout = 15 * time.Second
+
+// newBenchVerifyClient builds the read-side client used only to count records on the destination
+// topic. Integration tests use a consumer group; benchmarks use a direct consumer (ConsumeTopics
+// without ConsumerGroup) so franz-go assigns all topic partitions from metadata without group
+// join—consumer group join on Docker/macOS + Redpanda was observed to block warmup for many minutes.
+// The pump/producer/bridge path still uses benchCluster + kafka.*Opts for large batches; for
+// multi-megabyte records, fetch limits are raised here only (not the full bench cluster opts).
+func newBenchVerifyClient(brokers []string, topic, group string, payloadSize int) (*kgo.Client, error) {
+	opts := []kgo.Opt{
+		kgo.SeedBrokers(brokers...),
+		kgo.ConsumeTopics(topic),
+		kgo.ClientID("bench-verify-" + group),
+		kgo.FetchIsolationLevel(kgo.ReadUncommitted()),
+		// Cap broker long-poll so ctx cancellation is observed between PollFetches calls.
+		kgo.FetchMaxWait(2 * time.Second),
+	}
+	if payloadSize > 1024*1024 {
+		partBytes := int32(int64(payloadSize) + 256*1024)
+		fetchTotal := int32(50 << 20)
+		opts = append(opts, kgo.FetchMaxBytes(fetchTotal), kgo.FetchMaxPartitionBytes(partBytes))
+	}
+	return kgo.NewClient(opts...)
+}
+
 // benchCluster mirrors production YAML: producer.batch_max_bytes, consumer fetch limits, and
 // client broker socket caps—same fields that avoid MESSAGE_TOO_LARGE on clients (broker-side
 // limits are set in cluster_bench_test.go on Redpanda).
@@ -138,22 +170,15 @@ func benchmarkKafkaRoundTrip(b *testing.B, payloadSize int) {
 		b.Fatalf("bootstrap topic: %v", res.FirstErr())
 	}
 
-	base, err := kafka.ClientOpts(&env, nil)
-	if err != nil {
-		b.Fatalf("verify base opts: %v", err)
-	}
-	cons, err := kafka.ConsumerClusterOpts(&env)
-	if err != nil {
-		b.Fatalf("verify consumer opts: %v", err)
-	}
-	verifyOpts := append(append(base, cons...), kgo.ConsumeTopics(topic), kgo.ConsumerGroup("bench-rt-verify-"+suffix))
-	verify, err := kgo.NewClient(verifyOpts...)
+	verify, err := newBenchVerifyClient(brokers, topic, "bench-rt-verify-"+suffix, payloadSize)
 	if err != nil {
 		b.Fatalf("verify client: %v", err)
 	}
 	defer verify.Close()
 
-	if err := drainTopicRecords(ctx, verify, topic, 1); err != nil {
+	prewarmCtx, prewarmCancel := context.WithTimeout(ctx, benchDrainJoinTimeout)
+	defer prewarmCancel()
+	if err := drainTopicRecords(prewarmCtx, verify, topic, 1, nil); err != nil {
 		b.Fatalf("drain bootstrap: %v", err)
 	}
 
@@ -162,23 +187,30 @@ func benchmarkKafkaRoundTrip(b *testing.B, payloadSize int) {
 	defer runCancel()
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	// Use b.Loop() (Go 1.24+): the benchmark function runs once per measurement. A classic
+	// for i := 0; i < b.N; i++ loop re-invokes this entire function for each b.N calibration step,
+	// repeating Docker setup, warmup drain, bridge, and smoke — wall time explodes.
+	for b.Loop() {
 		if res := pump.ProduceSync(runCtx, &kgo.Record{Topic: topic, Value: payload}); res.FirstErr() != nil {
 			b.Fatalf("produce: %v", res.FirstErr())
 		}
 	}
-	if err := drainTopicRecords(runCtx, verify, topic, b.N); err != nil {
-		b.Fatalf("drain: %v", err)
+
+	// Verify at least one produced record is visible to the consumer (full b.N is not worth draining here).
+	if b.N > 0 {
+		smokeCtx, smokeCancel := context.WithTimeout(ctx, benchSmokeDrainTimeout)
+		defer smokeCancel()
+		benchProgressf("bifrost benchmark: smoke drain 1 record from %q (≤%s)...\n", topic, benchSmokeDrainTimeout)
+		if err := drainTopicRecords(smokeCtx, verify, topic, 1, nil); err != nil {
+			b.Fatalf("smoke drain: %v", err)
+		}
 	}
-	b.StopTimer()
 
 	b.SetBytes(int64(payloadSize))
 }
 
 // benchmarkBridgeRelayWithBurst runs the end-to-end bridge benchmark. burst is the number of
-// produces per benchmark iteration (use 1 for per-message latency). drainTopicRecords receives
-// b.N*burst total records on the destination topic.
+// produces per benchmark iteration (use 1 for per-message latency).
 func benchmarkBridgeRelayWithBurst(b *testing.B, payloadSize int, burst int) {
 	b.Helper()
 	brokers := setupBenchRedpanda(b)
@@ -213,10 +245,13 @@ func benchmarkBridgeRelayWithBurst(b *testing.B, payloadSize int, burst int) {
 	}
 	defer pump.Close()
 
-	if res := pump.ProduceSync(ctx, &kgo.Record{Topic: toTopic, Value: nil}); res.FirstErr() != nil {
+	// Create to-topic before the bridge runs so the first relay produce does not hit
+	// UNKNOWN_TOPIC_OR_PARTITION while metadata/partitions settle (integration also bootstraps to-topic).
+	// Pin partition 0 so the seed record and bridge consumer group assignment line up on one partition.
+	if res := pump.ProduceSync(ctx, &kgo.Record{Topic: toTopic, Partition: 0, Value: nil}); res.FirstErr() != nil {
 		b.Fatalf("bootstrap to-topic: %v", res.FirstErr())
 	}
-	if res := pump.ProduceSync(ctx, &kgo.Record{Topic: fromTopic, Value: []byte{0}}); res.FirstErr() != nil {
+	if res := pump.ProduceSync(ctx, &kgo.Record{Topic: fromTopic, Partition: 0, Value: []byte{0}}); res.FirstErr() != nil {
 		b.Fatalf("bootstrap from-topic: %v", res.FirstErr())
 	}
 
@@ -236,7 +271,12 @@ func benchmarkBridgeRelayWithBurst(b *testing.B, payloadSize int, burst int) {
 	}
 	defer metricsRegistry.StopServer()
 
-	consumer, err := kafka.NewConsumerForBridge(&env, "bench-cg-"+suffix, fromTopic, nil, nil)
+	// Consumer group is required for CommitRecords in pkg/bridge. Cap fetch long-poll and disable
+	// fetch sessions so PollFetches returns regularly and ctx cancellation is observable.
+	consumer, err := kafka.NewConsumerForBridge(&env, "bench-cg-"+suffix, fromTopic, nil, nil,
+		kgo.FetchMaxWait(2*time.Second),
+		kgo.DisableFetchSessions(),
+	)
 	if err != nil {
 		b.Fatalf("consumer: %v", err)
 	}
@@ -254,25 +294,11 @@ func benchmarkBridgeRelayWithBurst(b *testing.B, payloadSize int, burst int) {
 		To:   bifrostconfig.BridgeTarget{Cluster: "bench", Topic: toTopic},
 	})
 
-	base, err := kafka.ClientOpts(&env, nil)
-	if err != nil {
-		b.Fatalf("verify base opts: %v", err)
-	}
-	cons, err := kafka.ConsumerClusterOpts(&env)
-	if err != nil {
-		b.Fatalf("verify consumer opts: %v", err)
-	}
-	verifyOpts := append(append(base, cons...), kgo.ConsumeTopics(toTopic), kgo.ConsumerGroup("bench-verify-"+suffix))
-	verify, err := kgo.NewClient(verifyOpts...)
+	verify, err := newBenchVerifyClient(brokers, toTopic, "bench-verify-"+suffix, payloadSize)
 	if err != nil {
 		b.Fatalf("verify client: %v", err)
 	}
 	defer verify.Close()
-
-	// Drain bootstrap record so the timed section only counts relayed messages.
-	if err := drainTopicRecords(ctx, verify, toTopic, 1); err != nil {
-		b.Fatalf("drain bootstrap: %v", err)
-	}
 
 	bridgeCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -282,24 +308,45 @@ func benchmarkBridgeRelayWithBurst(b *testing.B, payloadSize int, burst int) {
 		errCh <- bridge.Run(bridgeCtx, id, consumer, producer, metricsRegistry.BridgeMetrics, bridge.RunOptions{})
 	}()
 
+	// Wait until the bridge has relayed the from-topic bootstrap (record has bifrost source headers).
+	// Do not count "two records on to-topic": the nil bootstrap is not a relay, and counting
+	// records blocked for minutes when the bridge consumer group was slow to assign while verify
+	// had already consumed the nil produce.
+	warmupCtx, warmupCancel := context.WithTimeout(ctx, benchDrainJoinTimeout)
+	defer warmupCancel()
+	benchProgressf("bifrost benchmark: warmup wait for first relay on %q (up to %s)...\n", toTopic, benchDrainJoinTimeout)
+	if err := waitForBenchRelayOnToTopic(warmupCtx, verify, toTopic, errCh); err != nil {
+		b.Fatalf("warmup: %v", err)
+	}
+
 	runDeadline := 30 * time.Minute
 	runCtx, runCancel := context.WithTimeout(ctx, runDeadline)
 	defer runCancel()
 
 	b.ReportAllocs()
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		for j := 0; j < burst; j++ {
-			if res := pump.ProduceSync(runCtx, &kgo.Record{Topic: fromTopic, Value: payload}); res.FirstErr() != nil {
+			if res := pump.ProduceSync(runCtx, &kgo.Record{Topic: fromTopic, Partition: 0, Value: payload}); res.FirstErr() != nil {
 				b.Fatalf("produce: %v", res.FirstErr())
 			}
 		}
 	}
-	if err := drainTopicRecords(runCtx, verify, toTopic, b.N*burst); err != nil {
-		b.Fatalf("drain: %v", err)
+
+	select {
+	case err := <-errCh:
+		if err != nil && !errors.Is(err, context.Canceled) {
+			b.Fatalf("bridge: %v", err)
+		}
+	default:
 	}
-	b.StopTimer()
+	if b.N*burst > 0 {
+		smokeCtx, smokeCancel := context.WithTimeout(ctx, benchSmokeDrainTimeout)
+		defer smokeCancel()
+		benchProgressf("bifrost benchmark: smoke drain 1 relay from %q (≤%s)...\n", toTopic, benchSmokeDrainTimeout)
+		if err := drainTopicRecords(smokeCtx, verify, toTopic, 1, errCh); err != nil {
+			b.Fatalf("smoke drain: %v", err)
+		}
+	}
 
 	// SetBytes records bytes processed per benchmark iteration (one pass of the loop above). The
 	// testing package multiplies by b.N when reporting throughput; do not multiply by b.N here or
@@ -315,9 +362,58 @@ func benchmarkBridgeRelayWithBurst(b *testing.B, payloadSize int, burst int) {
 	}
 }
 
-func drainTopicRecords(ctx context.Context, cl *kgo.Client, topic string, want int) error {
+// waitForBenchRelayOnToTopic blocks until a record produced by pkg/bridge appears on toTopic
+// (identified by bifrost source headers). This avoids counting raw topic records: the pump's
+// nil bootstrap to to-topic is not a relay and must not be confused with the relayed seed.
+func waitForBenchRelayOnToTopic(ctx context.Context, cl *kgo.Client, toTopic string, errCh <-chan error) error {
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if errCh != nil {
+			select {
+			case err := <-errCh:
+				if err != nil && !errors.Is(err, context.Canceled) {
+					return fmt.Errorf("bridge exited: %w", err)
+				}
+			default:
+			}
+		}
+		fetches := cl.PollFetches(ctx)
+		if err := fetches.Err(); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return err
+		}
+		for _, r := range fetches.Records() {
+			if r.Topic != toTopic {
+				continue
+			}
+			for _, h := range r.Headers {
+				if h.Key == bridge.HeaderSourceCluster {
+					return nil
+				}
+			}
+		}
+	}
+}
+
+func drainTopicRecords(ctx context.Context, cl *kgo.Client, topic string, want int, errCh <-chan error) error {
 	received := 0
 	for received < want {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if errCh != nil {
+			select {
+			case err := <-errCh:
+				if err != nil && !errors.Is(err, context.Canceled) {
+					return fmt.Errorf("bridge exited: %w", err)
+				}
+			default:
+			}
+		}
 		fetches := cl.PollFetches(ctx)
 		if err := fetches.Err(); err != nil {
 			if ctx.Err() != nil {
