@@ -6,7 +6,8 @@ import (
 	"sync"
 	"time"
 
-	bifrostconfig "github.com/lolocompany/bifrost/pkg/config"
+	"github.com/lolocompany/bifrost/pkg/config"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
@@ -21,7 +22,7 @@ type BrokerMetrics struct {
 
 // newBrokerMetrics registers Kafka, TLS, and TCP metrics for broker connections when the corresponding groups are enabled.
 // It returns (nil, nil) when Kafka, TLS, and TCP groups are all disabled.
-func newBrokerMetrics(reg prometheus.Registerer, g bifrostconfig.MetricGroups) (*BrokerMetrics, error) {
+func newBrokerMetrics(reg prometheus.Registerer, g config.MetricGroups) (*BrokerMetrics, error) {
 	kafkaOn := g.GroupKafka()
 	tlsOn := g.GroupTLS()
 	tcpOn := g.GroupTCP()

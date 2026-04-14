@@ -12,14 +12,15 @@ import (
 	"errors"
 	"net/http"
 
-	bifrostconfig "github.com/lolocompany/bifrost/pkg/config"
+	"github.com/lolocompany/bifrost/pkg/config"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // New registers per-bridge metrics, broker-scoped metrics, and runtime collectors when enabled.
 // bridges is used to pre-register per-bridge label combinations (zero counters) so all bridges appear on /metrics.
-func New(reg prometheus.Registerer, cfg bifrostconfig.Metrics, bridges []bifrostconfig.Bridge) (*BridgeMetrics, *BrokerMetrics, error) {
+func New(reg prometheus.Registerer, cfg config.Metrics, bridges []config.Bridge) (*BridgeMetrics, *BrokerMetrics, error) {
 	if reg == nil {
 		return nil, nil, errors.New("registerer is nil")
 	}

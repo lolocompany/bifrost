@@ -10,7 +10,7 @@ import (
 
 	"github.com/lolocompany/bifrost/pkg/bridge"
 	"github.com/lolocompany/bifrost/pkg/config"
-	bifrostkafka "github.com/lolocompany/bifrost/pkg/kafka"
+	"github.com/lolocompany/bifrost/pkg/kafka"
 	"github.com/lolocompany/bifrost/pkg/metrics"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
@@ -49,18 +49,18 @@ func ensureTopicsForConfiguredBridges(ctx context.Context, cfg config.Config, pr
 }
 
 func newProducer(ctx context.Context, clusterName string, clusterCfg config.Cluster, brokerMetrics *metrics.BrokerMetrics) (*kgo.Client, error) {
-	producer, err := bifrostkafka.NewProducer(&clusterCfg, kafkaClientHooks(brokerMetrics, clusterName), tcpDialRecorder(brokerMetrics, clusterName))
+	producer, err := kafka.NewProducer(&clusterCfg, kafkaClientHooks(brokerMetrics, clusterName), tcpDialRecorder(brokerMetrics, clusterName))
 	if err != nil {
 		return nil, err
 	}
 	logKafkaClientDebug(clusterName, "producer", &clusterCfg)
 
-	pingCtx, cancelPing, err := bifrostkafka.WithPingTimeout(ctx, &clusterCfg)
+	pingCtx, cancelPing, err := kafka.WithPingTimeout(ctx, &clusterCfg)
 	if err != nil {
 		producer.Close()
 		return nil, fmt.Errorf("ping: %w", err)
 	}
-	if err := bifrostkafka.PingBroker(pingCtx, producer); err != nil {
+	if err := kafka.PingBroker(pingCtx, producer); err != nil {
 		cancelPing()
 		producer.Close()
 		return nil, fmt.Errorf("broker unreachable: %w", err)
@@ -72,7 +72,7 @@ func newProducer(ctx context.Context, clusterName string, clusterCfg config.Clus
 }
 
 func newConsumer(ctx context.Context, bridgeCfg config.Bridge, fromCluster config.Cluster, brokerMetrics *metrics.BrokerMetrics) (*kgo.Client, error) {
-	consumer, err := bifrostkafka.NewConsumerForBridge(
+	consumer, err := kafka.NewConsumerForBridge(
 		&fromCluster,
 		bridgeCfg.EffectiveConsumerGroup(),
 		bridgeCfg.From.Topic,
@@ -84,12 +84,12 @@ func newConsumer(ctx context.Context, bridgeCfg config.Bridge, fromCluster confi
 	}
 	logKafkaClientDebug(bridgeCfg.From.Cluster, "consumer", &fromCluster)
 
-	pingCtx, cancelPing, err := bifrostkafka.WithPingTimeout(ctx, &fromCluster)
+	pingCtx, cancelPing, err := kafka.WithPingTimeout(ctx, &fromCluster)
 	if err != nil {
 		consumer.Close()
 		return nil, fmt.Errorf("bridge %q consumer ping: %w", bridgeCfg.Name, err)
 	}
-	if err := bifrostkafka.PingBroker(pingCtx, consumer); err != nil {
+	if err := kafka.PingBroker(pingCtx, consumer); err != nil {
 		cancelPing()
 		consumer.Close()
 		return nil, fmt.Errorf("bridge %q from cluster %q: broker unreachable: %w", bridgeCfg.Name, bridgeCfg.From.Cluster, err)
@@ -126,7 +126,7 @@ func ensureTopicsForCluster(
 		defer client.Close()
 	}
 
-	created, err := bifrostkafka.EnsureTopics(ctx, client, clusterCfg.AutoCreateTopics, topics)
+	created, err := kafka.EnsureTopics(ctx, client, clusterCfg.AutoCreateTopics, topics)
 	if err != nil {
 		return fmt.Errorf("cluster %q: ensure topics: %w", clusterName, err)
 	}

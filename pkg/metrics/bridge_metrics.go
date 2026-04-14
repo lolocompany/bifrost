@@ -4,7 +4,8 @@ import (
 	"fmt"
 
 	"github.com/lolocompany/bifrost/pkg/bridge"
-	bifrostconfig "github.com/lolocompany/bifrost/pkg/config"
+	"github.com/lolocompany/bifrost/pkg/config"
+
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -18,7 +19,7 @@ type BridgeMetrics struct {
 	produceDuration *prometheus.HistogramVec
 }
 
-func newBridgeMetrics(reg prometheus.Registerer, bridges []bifrostconfig.Bridge) (*BridgeMetrics, error) {
+func newBridgeMetrics(reg prometheus.Registerer, bridges []config.Bridge) (*BridgeMetrics, error) {
 	m := &BridgeMetrics{}
 
 	c := prometheus.NewCounterVec(
@@ -62,7 +63,7 @@ func newBridgeMetrics(reg prometheus.Registerer, bridges []bifrostconfig.Bridge)
 	return m, nil
 }
 
-func initBridgeSeries(m *BridgeMetrics, bridges []bifrostconfig.Bridge) {
+func initBridgeSeries(m *BridgeMetrics, bridges []config.Bridge) {
 	for _, br := range bridges {
 		id := bridge.IdentityFrom(br)
 		v := id.LabelValues()
