@@ -32,11 +32,11 @@ func Run(ctx context.Context, cfg config.Config) error {
 	}
 	slog.Debug("run startup", startupAttrs...)
 
-	reg, err := metrics.NewFromConfig(cfg)
+	metricsRegistry, err := metrics.NewFromConfig(cfg)
 	if err != nil {
 		return err
 	}
-	defer reg.StopServer()
+	defer metricsRegistry.StopServer()
 
 	for _, br := range cfg.Bridges {
 		slog.Debug("bridge wiring",
@@ -49,13 +49,13 @@ func Run(ctx context.Context, cfg config.Config) error {
 		)
 	}
 
-	producersByCluster, closeProducers, err := buildProducersByDestinationCluster(ctx, cfg, reg.BrokerMetrics)
+	producersByCluster, closeProducers, err := buildProducersByDestinationCluster(ctx, cfg, metricsRegistry.BrokerMetrics)
 	if err != nil {
 		return err
 	}
 	defer closeProducers()
 
-	if err := ensureTopicsForConfiguredBridges(ctx, cfg, producersByCluster, reg.BrokerMetrics); err != nil {
+	if err := ensureTopicsForConfiguredBridges(ctx, cfg, producersByCluster, metricsRegistry.BrokerMetrics); err != nil {
 		return err
 	}
 
@@ -70,7 +70,7 @@ func Run(ctx context.Context, cfg config.Config) error {
 			}
 			runOpts.ExtraHeaders = recordHeadersFromExtraHeaders(bridgeCfg.ExtraHeaders)
 
-			consumer, err := newConsumer(ctx, bridgeCfg, fromCluster, reg.BrokerMetrics)
+			consumer, err := newConsumer(ctx, bridgeCfg, fromCluster, metricsRegistry.BrokerMetrics)
 			if err != nil {
 				return err
 			}
@@ -83,7 +83,7 @@ func Run(ctx context.Context, cfg config.Config) error {
 				"from_cluster", bridgeCfg.From.Cluster,
 				"to_cluster", bridgeCfg.To.Cluster,
 			)
-			if err := bridge.Run(ctx, bridge.IdentityFrom(bridgeCfg), consumer, producer, reg.BridgeMetrics, runOpts); err != nil {
+			if err := bridge.Run(ctx, bridge.IdentityFrom(bridgeCfg), consumer, producer, metricsRegistry.BridgeMetrics, runOpts); err != nil {
 				if errors.Is(err, context.Canceled) {
 					return nil
 				}

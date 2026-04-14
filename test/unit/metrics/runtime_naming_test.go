@@ -7,13 +7,10 @@ import (
 	"github.com/lolocompany/bifrost/pkg/bridge"
 	bifrostconfig "github.com/lolocompany/bifrost/pkg/config"
 	"github.com/lolocompany/bifrost/pkg/metrics"
-	"github.com/prometheus/client_golang/prometheus"
 )
 
 func TestRegisteredMetricNamesUseErrorsTerminology(t *testing.T) {
-	reg := prometheus.NewRegistry()
 	enabled := true
-	cfg := bifrostconfig.Metrics{Enable: &enabled}
 	bridges := []bifrostconfig.Bridge{
 		{
 			Name: "a-to-b",
@@ -21,11 +18,19 @@ func TestRegisteredMetricNamesUseErrorsTerminology(t *testing.T) {
 			To:   bifrostconfig.BridgeTarget{Cluster: "b", Topic: "out"},
 		},
 	}
-	if _, _, err := metrics.New(reg, cfg, bridges); err != nil {
-		t.Fatalf("metrics.New: %v", err)
+	mr, err := metrics.NewFromConfig(bifrostconfig.Config{
+		Metrics: bifrostconfig.Metrics{
+			Enable:     &enabled,
+			ListenAddr: "127.0.0.1:0",
+		},
+		Bridges: bridges,
+	})
+	if err != nil {
+		t.Fatalf("NewFromConfig: %v", err)
 	}
+	defer mr.StopServer()
 
-	fams, err := reg.Gather()
+	fams, err := mr.Gather()
 	if err != nil {
 		t.Fatalf("Gather: %v", err)
 	}
@@ -39,9 +44,7 @@ func TestRegisteredMetricNamesUseErrorsTerminology(t *testing.T) {
 }
 
 func TestRegisteredMetricNamesUseRelaySubsystem(t *testing.T) {
-	reg := prometheus.NewRegistry()
 	enabled := true
-	cfg := bifrostconfig.Metrics{Enable: &enabled}
 	bridges := []bifrostconfig.Bridge{
 		{
 			Name: "a-to-b",
@@ -49,13 +52,22 @@ func TestRegisteredMetricNamesUseRelaySubsystem(t *testing.T) {
 			To:   bifrostconfig.BridgeTarget{Cluster: "b", Topic: "out"},
 		},
 	}
-	m, _, err := metrics.New(reg, cfg, bridges)
+	mr, err := metrics.NewFromConfig(bifrostconfig.Config{
+		Metrics: bifrostconfig.Metrics{
+			Enable:     &enabled,
+			ListenAddr: "127.0.0.1:0",
+		},
+		Bridges: bridges,
+	})
 	if err != nil {
-		t.Fatalf("metrics.New: %v", err)
+		t.Fatalf("NewFromConfig: %v", err)
 	}
+	defer mr.StopServer()
+
+	m := mr.BridgeMetrics
 	m.IncMessages(bridge.IdentityFrom(bridges[0]))
 
-	fams, err := reg.Gather()
+	fams, err := mr.Gather()
 	if err != nil {
 		t.Fatalf("Gather: %v", err)
 	}

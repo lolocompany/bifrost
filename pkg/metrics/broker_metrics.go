@@ -22,16 +22,16 @@ type BrokerMetrics struct {
 
 // newBrokerMetrics registers Kafka, TLS, and TCP metrics for broker connections when the corresponding groups are enabled.
 // It returns (nil, nil) when Kafka, TLS, and TCP groups are all disabled.
-func newBrokerMetrics(reg prometheus.Registerer, g config.MetricGroups) (*BrokerMetrics, error) {
+func newBrokerMetrics(reg prometheus.Registerer, g config.MetricGroups) (BrokerMetrics, error) {
 	kafkaOn := g.GroupKafka()
 	tlsOn := g.GroupTLS()
 	tcpOn := g.GroupTCP()
 	if !kafkaOn && !tlsOn && !tcpOn {
-		return nil, nil
+		return BrokerMetrics{}, nil
 	}
 
 	labelCluster := []string{"cluster"}
-	bm := &BrokerMetrics{}
+	bm := BrokerMetrics{}
 	if kafkaOn {
 		bm.Kafka = newKafkaBrokerMetrics(labelCluster)
 	}
@@ -44,7 +44,7 @@ func newBrokerMetrics(reg prometheus.Registerer, g config.MetricGroups) (*Broker
 
 	for _, c := range bm.collectors() {
 		if err := reg.Register(c); err != nil {
-			return nil, fmt.Errorf("register broker metric: %w", err)
+			return BrokerMetrics{}, fmt.Errorf("register broker metric: %w", err)
 		}
 	}
 	return bm, nil

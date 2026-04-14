@@ -10,7 +10,7 @@ import (
 )
 
 // ASSERT: BridgeMetrics implements bridge.MetricsReporter.
-var _ bridge.MetricsReporter = (*BridgeMetrics)(nil)
+var _ bridge.MetricsReporter = BridgeMetrics{}
 
 // BridgeMetrics holds per-bridge Prometheus series: messages, errors by stage, produce duration.
 type BridgeMetrics struct {
@@ -19,8 +19,8 @@ type BridgeMetrics struct {
 	produceDuration *prometheus.HistogramVec
 }
 
-func newBridgeMetrics(reg prometheus.Registerer, bridges []config.Bridge) (*BridgeMetrics, error) {
-	m := &BridgeMetrics{}
+func newBridgeMetrics(reg prometheus.Registerer, bridges []config.Bridge) (BridgeMetrics, error) {
+	m := BridgeMetrics{}
 
 	c := prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -30,7 +30,7 @@ func newBridgeMetrics(reg prometheus.Registerer, bridges []config.Bridge) (*Brid
 		bridge.LabelNames,
 	)
 	if err := reg.Register(c); err != nil {
-		return nil, fmt.Errorf("register relay messages counter: %w", err)
+		return BridgeMetrics{}, fmt.Errorf("register relay messages counter: %w", err)
 	}
 	m.messages = c
 
@@ -42,7 +42,7 @@ func newBridgeMetrics(reg prometheus.Registerer, bridges []config.Bridge) (*Brid
 		append(append([]string(nil), bridge.LabelNames...), "stage"),
 	)
 	if err := reg.Register(cv); err != nil {
-		return nil, fmt.Errorf("register relay errors counter: %w", err)
+		return BridgeMetrics{}, fmt.Errorf("register relay errors counter: %w", err)
 	}
 	m.errors = cv
 
@@ -55,7 +55,7 @@ func newBridgeMetrics(reg prometheus.Registerer, bridges []config.Bridge) (*Brid
 		bridge.LabelNames,
 	)
 	if err := reg.Register(h); err != nil {
-		return nil, fmt.Errorf("register relay produce duration histogram: %w", err)
+		return BridgeMetrics{}, fmt.Errorf("register relay produce duration histogram: %w", err)
 	}
 	m.produceDuration = h
 
@@ -63,7 +63,7 @@ func newBridgeMetrics(reg prometheus.Registerer, bridges []config.Bridge) (*Brid
 	return m, nil
 }
 
-func initBridgeSeries(m *BridgeMetrics, bridges []config.Bridge) {
+func initBridgeSeries(m BridgeMetrics, bridges []config.Bridge) {
 	for _, br := range bridges {
 		id := bridge.IdentityFrom(br)
 		v := id.LabelValues()
@@ -79,16 +79,16 @@ func initBridgeSeries(m *BridgeMetrics, bridges []config.Bridge) {
 }
 
 // IncMessages increments bifrost_relay_messages_total for this bridge.
-func (m *BridgeMetrics) IncMessages(id bridge.Identity) {
-	if m == nil || m.messages == nil {
+func (m BridgeMetrics) IncMessages(id bridge.Identity) {
+	if m.messages == nil {
 		return
 	}
 	m.messages.WithLabelValues(id.LabelValues()...).Inc()
 }
 
 // IncErrors increments bifrost_relay_errors_total for this bridge and stage (poll, produce, commit, route).
-func (m *BridgeMetrics) IncErrors(id bridge.Identity, stage string) {
-	if m == nil || m.errors == nil {
+func (m BridgeMetrics) IncErrors(id bridge.Identity, stage string) {
+	if m.errors == nil {
 		return
 	}
 	v := id.LabelValues()
@@ -96,8 +96,8 @@ func (m *BridgeMetrics) IncErrors(id bridge.Identity, stage string) {
 }
 
 // ObserveProduceDuration records seconds for bifrost_relay_produce_duration_seconds (to-side produce path).
-func (m *BridgeMetrics) ObserveProduceDuration(id bridge.Identity, seconds float64) {
-	if m == nil || m.produceDuration == nil {
+func (m BridgeMetrics) ObserveProduceDuration(id bridge.Identity, seconds float64) {
+	if m.produceDuration == nil {
 		return
 	}
 	m.produceDuration.WithLabelValues(id.LabelValues()...).Observe(seconds)

@@ -11,13 +11,24 @@ import (
 
 	"github.com/lolocompany/bifrost/pkg/config"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	dto "github.com/prometheus/client_model/go"
 )
 
 // MetricsRegistry holds process-level Prometheus collectors and the /metrics HTTP server lifecycle.
 type MetricsRegistry struct {
-	BridgeMetrics *BridgeMetrics
-	BrokerMetrics *BrokerMetrics
+	BridgeMetrics BridgeMetrics
+	BrokerMetrics BrokerMetrics
+	gatherer      prometheus.Gatherer
 	serverStop    func()
+}
+
+// Gather returns the current set of metric families (Prometheus text exposition source).
+func (m *MetricsRegistry) Gather() ([]*dto.MetricFamily, error) {
+	if m.gatherer == nil {
+		return nil, nil
+	}
+	return m.gatherer.Gather()
 }
 
 // StopServer shuts down the metrics HTTP listener if one was started.
@@ -26,22 +37,39 @@ func (m *MetricsRegistry) StopServer() {
 }
 
 // NewFromConfig registers collectors from cfg and starts the /metrics HTTP server when enabled.
-func NewFromConfig(cfg config.Config) (*MetricsRegistry, error) {
+func NewFromConfig(cfg config.Config) (MetricsRegistry, error) {
 	reg := prometheus.NewRegistry()
 	registerer := wrapRegistererWithExtraLabels(reg, cfg.Metrics.ExtraLabels)
-	bridgeMetrics, brokerMetrics, err := New(registerer, cfg.Metrics, cfg.Bridges)
-	if err != nil {
-		return nil, fmt.Errorf("metrics: %w", err)
+	m := cfg.Metrics
+
+	var bridgeMetrics BridgeMetrics
+	var brokerMetrics BrokerMetrics
+	if !m.MetricsEnabled() {
+		bridgeMetrics = BridgeMetrics{}
+	} else {
+		if err := RegisterRuntimeCollectors(registerer, m.Groups); err != nil {
+			return MetricsRegistry{}, fmt.Errorf("metrics: %w", err)
+		}
+		var err error
+		brokerMetrics, err = newBrokerMetrics(registerer, m.Groups)
+		if err != nil {
+			return MetricsRegistry{}, fmt.Errorf("metrics: %w", err)
+		}
+		bridgeMetrics, err = newBridgeMetrics(registerer, cfg.Bridges)
+		if err != nil {
+			return MetricsRegistry{}, fmt.Errorf("metrics: %w", err)
+		}
 	}
 
 	stop, err := startMetricsHTTPServer(cfg.Metrics, reg)
 	if err != nil {
-		return nil, fmt.Errorf("metrics: %w", err)
+		return MetricsRegistry{}, fmt.Errorf("metrics: %w", err)
 	}
 
-	return &MetricsRegistry{
+	return MetricsRegistry{
 		BridgeMetrics: bridgeMetrics,
 		BrokerMetrics: brokerMetrics,
+		gatherer:      reg,
 		serverStop:    stop,
 	}, nil
 }
@@ -57,13 +85,26 @@ func wrapRegistererWithExtraLabels(reg *prometheus.Registry, extraLabels map[str
 	return prometheus.WrapRegistererWith(labels, reg)
 }
 
+type errorLogger struct {
+	logger *slog.Logger
+}
+
+func (l *errorLogger) Println(v ...interface{}) {
+	l.logger.Error(fmt.Sprint(v...))
+}
+
 func startMetricsHTTPServer(cfg config.Metrics, reg *prometheus.Registry) (func(), error) {
 	if !cfg.MetricsEnabled() {
 		return func() {}, nil
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle("/metrics", Handler(reg))
+	mux.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{
+		ErrorLog:          &errorLogger{logger: slog.Default()},
+		ErrorHandling:     promhttp.HTTPErrorOnError,
+		Timeout:           10 * time.Second,
+		EnableOpenMetrics: true,
+	}))
 	srv := &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,

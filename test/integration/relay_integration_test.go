@@ -13,7 +13,6 @@ import (
 	bifrostconfig "github.com/lolocompany/bifrost/pkg/config"
 	"github.com/lolocompany/bifrost/pkg/kafka"
 	"github.com/lolocompany/bifrost/pkg/metrics"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
@@ -62,17 +61,20 @@ func runBridgeRelayTest(t *testing.T, brokers []string) {
 	}
 
 	metricsOff := false
-	reg := prometheus.NewRegistry()
-	m, _, err := metrics.New(reg, bifrostconfig.Metrics{Enable: &metricsOff}, []bifrostconfig.Bridge{
-		{
-			Name: "itest",
-			From: bifrostconfig.BridgeTarget{Cluster: "it", Topic: fromTopic},
-			To:   bifrostconfig.BridgeTarget{Cluster: "it", Topic: toTopic},
+	mr, err := metrics.NewFromConfig(bifrostconfig.Config{
+		Metrics: bifrostconfig.Metrics{Enable: &metricsOff},
+		Bridges: []bifrostconfig.Bridge{
+			{
+				Name: "itest",
+				From: bifrostconfig.BridgeTarget{Cluster: "it", Topic: fromTopic},
+				To:   bifrostconfig.BridgeTarget{Cluster: "it", Topic: toTopic},
+			},
 		},
 	})
 	if err != nil {
 		t.Fatalf("metrics: %v", err)
 	}
+	defer mr.StopServer()
 
 	consumer, err := kafka.NewConsumerForBridge(env, "itest-cg-"+suffix, fromTopic, nil, nil)
 	if err != nil {
@@ -97,7 +99,7 @@ func runBridgeRelayTest(t *testing.T, brokers []string) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- bridge.Run(bridgeCtx, id, consumer, producer, m, bridge.RunOptions{})
+		errCh <- bridge.Run(bridgeCtx, id, consumer, producer, mr.BridgeMetrics, bridge.RunOptions{})
 	}()
 
 	verify, err := kgo.NewClient(

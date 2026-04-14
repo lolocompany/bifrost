@@ -80,16 +80,16 @@ var defaultRetryConfig = RetryConfig{
 //
 // When PeriodicStatsInterval is greater than zero, Run logs info-level "bridge periodic stats"
 // on that interval with messages_delta and errors_delta since the previous log.
-func Run(ctx context.Context, id Identity, consumer, producer *kgo.Client, m MetricsReporter, opts RunOptions) error {
+func Run(ctx context.Context, id Identity, consumer, producer *kgo.Client, metrics MetricsReporter, opts RunOptions) error {
 	if consumer == nil || producer == nil {
 		return errors.New("kafka clients must not be nil")
 	}
-	return RunWithClients(ctx, id, kgoConsumer{client: consumer}, kgoProducer{client: producer}, m, opts)
+	return RunWithClients(ctx, id, kgoConsumer{client: consumer}, kgoProducer{client: producer}, metrics, opts)
 }
 
 // RunWithClients executes the relay loop against abstract consumer and producer clients.
-func RunWithClients(ctx context.Context, id Identity, consumer ConsumerClient, producer ProducerClient, m MetricsReporter, opts RunOptions) error {
-	if m == nil {
+func RunWithClients(ctx context.Context, id Identity, consumer ConsumerClient, producer ProducerClient, metrics MetricsReporter, opts RunOptions) error {
+	if metrics == nil {
 		return errors.New("metrics must not be nil")
 	}
 	opts = opts.withDefaults()
@@ -131,7 +131,7 @@ func RunWithClients(ctx context.Context, id Identity, consumer ConsumerClient, p
 
 		fetches := consumer.PollFetches(ctx)
 		if err := fetches.Err(); err != nil {
-			m.IncErrors(id, "poll")
+			metrics.IncErrors(id, "poll")
 			errorsSeen.Add(1)
 			if !lastPollFailed {
 				log.Info("connection lost; reconnecting in background", "stage", "poll", "error_message", err.Error())
@@ -150,7 +150,7 @@ func RunWithClients(ctx context.Context, id Identity, consumer ConsumerClient, p
 		for _, r := range fetches.Records() {
 			if r.Topic != id.FromTopic {
 				log.Warn("unexpected topic on fetch", "topic", r.Topic)
-				m.IncErrors(id, "route")
+				metrics.IncErrors(id, "route")
 				errorsSeen.Add(1)
 				return fmt.Errorf("unexpected topic %q (want %q)", r.Topic, id.FromTopic)
 			}
@@ -169,20 +169,20 @@ func RunWithClients(ctx context.Context, id Identity, consumer ConsumerClient, p
 			}
 
 			var produceStart time.Time
-			if err := retryStage(ctx, log, "produce", opts.Retry.Produce, &errorsSeen, m, id, opts, func() error {
+			if err := retryStage(ctx, log, "produce", opts.Retry.Produce, &errorsSeen, metrics, id, opts, func() error {
 				produceStart = time.Now()
 				return producer.ProduceSync(ctx, out).FirstErr()
 			}); err != nil {
 				return fmt.Errorf("produce to %q: %w", id.ToTopic, err)
 			}
-			m.ObserveProduceDuration(id, time.Since(produceStart).Seconds())
+			metrics.ObserveProduceDuration(id, time.Since(produceStart).Seconds())
 
-			if err := retryStage(ctx, log, "commit", opts.Retry.Commit, &errorsSeen, m, id, opts, func() error {
+			if err := retryStage(ctx, log, "commit", opts.Retry.Commit, &errorsSeen, metrics, id, opts, func() error {
 				return consumer.CommitRecords(ctx, r)
 			}); err != nil {
 				return fmt.Errorf("commit from-side offsets: %w", err)
 			}
-			m.IncMessages(id)
+			metrics.IncMessages(id)
 			msgsRelayed.Add(1)
 		}
 	}

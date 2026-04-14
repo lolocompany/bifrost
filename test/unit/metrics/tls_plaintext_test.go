@@ -2,34 +2,39 @@ package metrics_test
 
 import (
 	"net"
+	"reflect"
 	"testing"
 
 	bifrostconfig "github.com/lolocompany/bifrost/pkg/config"
 	"github.com/lolocompany/bifrost/pkg/metrics"
-	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
 func TestTLSMetrics_plaintextBrokerConnectDoesNotIncrementHandshakeErrors(t *testing.T) {
-	reg := prometheus.NewRegistry()
 	enabled := true
 	disabled := false
 
-	_, brokerMetrics, err := metrics.New(reg, bifrostconfig.Metrics{
-		Enable: &enabled,
-		Groups: bifrostconfig.MetricGroups{
-			Golang:  &disabled,
-			Process: &disabled,
-			Kafka:   &disabled,
-			TLS:     &enabled,
-			TCP:     &disabled,
+	mr, err := metrics.NewFromConfig(bifrostconfig.Config{
+		Metrics: bifrostconfig.Metrics{
+			Enable:     &enabled,
+			ListenAddr: "127.0.0.1:0",
+			Groups: bifrostconfig.MetricGroups{
+				Golang:  &disabled,
+				Process: &disabled,
+				Kafka:   &disabled,
+				TLS:     &enabled,
+				TCP:     &disabled,
+			},
 		},
-	}, nil)
+	})
 	if err != nil {
-		t.Fatalf("metrics.New: %v", err)
+		t.Fatalf("NewFromConfig: %v", err)
 	}
-	if brokerMetrics == nil {
+	defer mr.StopServer()
+
+	brokerMetrics := mr.BrokerMetrics
+	if reflect.ValueOf(brokerMetrics).IsZero() {
 		t.Fatal("expected broker metrics")
 	}
 
@@ -53,7 +58,7 @@ func TestTLSMetrics_plaintextBrokerConnectDoesNotIncrementHandshakeErrors(t *tes
 
 	connectHook.OnBrokerConnect(kgo.BrokerMetadata{}, 0, serverConn, nil)
 
-	fams, err := reg.Gather()
+	fams, err := mr.Gather()
 	if err != nil {
 		t.Fatalf("Gather: %v", err)
 	}

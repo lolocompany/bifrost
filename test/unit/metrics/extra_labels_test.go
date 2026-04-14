@@ -1,26 +1,17 @@
 package metrics_test
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/lolocompany/bifrost/pkg/bridge"
 	bifrostconfig "github.com/lolocompany/bifrost/pkg/config"
 	"github.com/lolocompany/bifrost/pkg/metrics"
-	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 )
 
 func TestMetricsExtraLabelsApplied(t *testing.T) {
-	reg := prometheus.NewRegistry()
-	reger := prometheus.WrapRegistererWith(prometheus.Labels{
-		"service": "bifrost",
-		"env":     "test",
-	}, reg)
-
 	metricsOn := true
-	cfg := bifrostconfig.Metrics{
-		Enable: &metricsOn,
-	}
 	bridges := []bifrostconfig.Bridge{
 		{
 			Name: "b1",
@@ -28,11 +19,25 @@ func TestMetricsExtraLabelsApplied(t *testing.T) {
 			To:   bifrostconfig.BridgeTarget{Cluster: "b", Topic: "out"},
 		},
 	}
-	m, bp, err := metrics.New(reger, cfg, bridges)
+	mr, err := metrics.NewFromConfig(bifrostconfig.Config{
+		Metrics: bifrostconfig.Metrics{
+			Enable:     &metricsOn,
+			ListenAddr: "127.0.0.1:0",
+			ExtraLabels: map[string]string{
+				"service": "bifrost",
+				"env":     "test",
+			},
+		},
+		Bridges: bridges,
+	})
 	if err != nil {
-		t.Fatalf("metrics.New: %v", err)
+		t.Fatalf("NewFromConfig: %v", err)
 	}
-	if m == nil || bp == nil {
+	defer mr.StopServer()
+
+	m := mr.BridgeMetrics
+	bp := mr.BrokerMetrics
+	if reflect.ValueOf(m).IsZero() || reflect.ValueOf(bp).IsZero() {
 		t.Fatal("expected bridge and broker metrics to be enabled")
 	}
 
@@ -43,7 +48,7 @@ func TestMetricsExtraLabelsApplied(t *testing.T) {
 		t.Fatal("expected kafka/tls hook")
 	}
 
-	fams, err := reg.Gather()
+	fams, err := mr.Gather()
 	if err != nil {
 		t.Fatalf("Gather: %v", err)
 	}

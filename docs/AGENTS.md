@@ -31,7 +31,7 @@ Do **not** conflate:
 | `pkg/bridge`                    | Core relay loop and interfaces (`MetricsReporter`, `RunOptions`, etc.).                                                                                                                       |
 | `pkg/config`                    | Parsed config, validation, defaults.                                                                                                                                                          |
 | `pkg/kafka`                     | Franz-go helpers (producers, consumers, ping, ensure topics).                                                                                                                                 |
-| `pkg/metrics`                   | Prometheus collectors, **`NewFromConfig`** (registry + `/metrics` HTTP server when enabled), `Handler`, `New` for custom registerers.                                                         |
+| `pkg/metrics`                   | Prometheus collectors, **`NewFromConfig`** (registry + `/metrics` HTTP server when enabled), `Handler`.                                                                                        |
 | `test/unit`, `test/integration` | Tests; integration tests are Docker-backed when enabled. **Unit tests for `pkg/*` live under `test/unit/<package>/`** (e.g. `test/unit/bifrost` for `pkg/bifrost`), not beside `pkg` sources. |
 
 ## Naming and abstractions

@@ -15,7 +15,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-func buildProducersByDestinationCluster(ctx context.Context, cfg config.Config, brokerMetrics *metrics.BrokerMetrics) (map[string]*kgo.Client, func(), error) {
+func buildProducersByDestinationCluster(ctx context.Context, cfg config.Config, brokerMetrics metrics.BrokerMetrics) (map[string]*kgo.Client, func(), error) {
 	producers := make(map[string]*kgo.Client)
 
 	for _, bridgeCfg := range cfg.Bridges {
@@ -37,7 +37,7 @@ func buildProducersByDestinationCluster(ctx context.Context, cfg config.Config, 
 	}, nil
 }
 
-func ensureTopicsForConfiguredBridges(ctx context.Context, cfg config.Config, producersByCluster map[string]*kgo.Client, brokerMetrics *metrics.BrokerMetrics) error {
+func ensureTopicsForConfiguredBridges(ctx context.Context, cfg config.Config, producersByCluster map[string]*kgo.Client, brokerMetrics metrics.BrokerMetrics) error {
 	topicsPerCluster := topicsPerClusterFromBridges(cfg.Bridges)
 	for _, clusterName := range sortedClusterNamesFromBridges(cfg.Bridges) {
 		clusterCfg := cfg.Clusters[clusterName]
@@ -48,7 +48,7 @@ func ensureTopicsForConfiguredBridges(ctx context.Context, cfg config.Config, pr
 	return nil
 }
 
-func newProducer(ctx context.Context, clusterName string, clusterCfg config.Cluster, brokerMetrics *metrics.BrokerMetrics) (*kgo.Client, error) {
+func newProducer(ctx context.Context, clusterName string, clusterCfg config.Cluster, brokerMetrics metrics.BrokerMetrics) (*kgo.Client, error) {
 	producer, err := kafka.NewProducer(&clusterCfg, kafkaClientHooks(brokerMetrics, clusterName), tcpDialRecorder(brokerMetrics, clusterName))
 	if err != nil {
 		return nil, err
@@ -71,7 +71,7 @@ func newProducer(ctx context.Context, clusterName string, clusterCfg config.Clus
 	return producer, nil
 }
 
-func newConsumer(ctx context.Context, bridgeCfg config.Bridge, fromCluster config.Cluster, brokerMetrics *metrics.BrokerMetrics) (*kgo.Client, error) {
+func newConsumer(ctx context.Context, bridgeCfg config.Bridge, fromCluster config.Cluster, brokerMetrics metrics.BrokerMetrics) (*kgo.Client, error) {
 	consumer, err := kafka.NewConsumerForBridge(
 		&fromCluster,
 		bridgeCfg.EffectiveConsumerGroup(),
@@ -106,7 +106,7 @@ func ensureTopicsForCluster(
 	clusterName string,
 	topics []string,
 	producersByCluster map[string]*kgo.Client,
-	brokerMetrics *metrics.BrokerMetrics,
+	brokerMetrics metrics.BrokerMetrics,
 ) error {
 	if !clusterCfg.AutoCreateTopics {
 		return nil
@@ -165,10 +165,7 @@ func closeProducerMap(clients map[string]*kgo.Client) {
 	}
 }
 
-func kafkaClientHooks(broker *metrics.BrokerMetrics, cluster string) []kgo.Hook {
-	if broker == nil {
-		return nil
-	}
+func kafkaClientHooks(broker metrics.BrokerMetrics, cluster string) []kgo.Hook {
 	h := broker.HookFor(cluster)
 	if h == nil {
 		return nil
@@ -176,10 +173,7 @@ func kafkaClientHooks(broker *metrics.BrokerMetrics, cluster string) []kgo.Hook 
 	return []kgo.Hook{h}
 }
 
-func tcpDialRecorder(broker *metrics.BrokerMetrics, cluster string) func(float64) {
-	if broker == nil {
-		return nil
-	}
+func tcpDialRecorder(broker metrics.BrokerMetrics, cluster string) func(float64) {
 	return broker.TCPDialRecorder(cluster)
 }
 

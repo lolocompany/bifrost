@@ -11,7 +11,6 @@ import (
 	bifrostconfig "github.com/lolocompany/bifrost/pkg/config"
 	"github.com/lolocompany/bifrost/pkg/kafka"
 	"github.com/lolocompany/bifrost/pkg/metrics"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
@@ -222,17 +221,20 @@ func benchmarkBridgeRelayWithBurst(b *testing.B, payloadSize int, burst int) {
 	}
 
 	metricsOff := false
-	reg := prometheus.NewRegistry()
-	m, _, err := metrics.New(reg, bifrostconfig.Metrics{Enable: &metricsOff}, []bifrostconfig.Bridge{
-		{
-			Name: "bench",
-			From: bifrostconfig.BridgeTarget{Cluster: "bench", Topic: fromTopic},
-			To:   bifrostconfig.BridgeTarget{Cluster: "bench", Topic: toTopic},
+	metricsRegistry, err := metrics.NewFromConfig(bifrostconfig.Config{
+		Metrics: bifrostconfig.Metrics{Enable: &metricsOff},
+		Bridges: []bifrostconfig.Bridge{
+			{
+				Name: "bench",
+				From: bifrostconfig.BridgeTarget{Cluster: "bench", Topic: fromTopic},
+				To:   bifrostconfig.BridgeTarget{Cluster: "bench", Topic: toTopic},
+			},
 		},
 	})
 	if err != nil {
 		b.Fatalf("metrics: %v", err)
 	}
+	defer metricsRegistry.StopServer()
 
 	consumer, err := kafka.NewConsumerForBridge(&env, "bench-cg-"+suffix, fromTopic, nil, nil)
 	if err != nil {
@@ -277,7 +279,7 @@ func benchmarkBridgeRelayWithBurst(b *testing.B, payloadSize int, burst int) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- bridge.Run(bridgeCtx, id, consumer, producer, m, bridge.RunOptions{})
+		errCh <- bridge.Run(bridgeCtx, id, consumer, producer, metricsRegistry.BridgeMetrics, bridge.RunOptions{})
 	}()
 
 	runDeadline := 30 * time.Minute
