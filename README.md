@@ -47,7 +47,9 @@ If you omit `**--config**` / `**-c**` and do not set `**BIFROST_CONFIG**`, the d
 
 ### Docker
 
-The [Dockerfile](./Dockerfile) image runs `bifrost` with working directory `/app`. **When using this image, prefer setting `BIFROST_CONFIG`** to the path of your YAML inside the container (for example after bind-mounting or copying the file). That keeps the config location explicit and avoids relying on default filenames or extra container command arguments.
+Release images are built by [GoReleaser](https://goreleaser.com/) (`dockers_v2`) from [`goreleaser/Dockerfile`](./goreleaser/Dockerfile). To **build locally from source** without GoReleaser, use [Dockerfile.build](./Dockerfile.build) (for example `make build-docker`).
+
+The image runs `bifrost` with working directory `/home/bifrost`. **When using this image, prefer setting `BIFROST_CONFIG`** to the path of your YAML inside the container (for example after bind-mounting or copying the file). That keeps the config location explicit and avoids relying on default filenames or extra container command arguments.
 
 ```bash
 docker run --rm \

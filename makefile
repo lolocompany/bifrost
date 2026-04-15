@@ -1,6 +1,6 @@
 # All targets are phony (no file named "build", "test", etc. should shadow these).
 .PHONY: bench bench-all bench-full bench-profile-block bench-profile-cpu bench-profile-mem bench-profile-trace \
-	build build-docker format help lint test test-coverage test-integration
+	build build-release build-docker format help lint test test-coverage test-integration
 
 # Isolated Redpanda per benchmark: wall time grows with container churn; allow a generous cap.
 BENCH_PATTERN ?= BenchmarkBridgeRelay256B|BenchmarkKafkaRoundTrip256B|BenchmarkBridgeRelayBurst256B
@@ -24,6 +24,7 @@ help:
 	@printf '  %-30s %s\n' 'bench-profile-mem' 'Heap profile + pprof -http (override BENCH=...)'
 	@printf '  %-30s %s\n' 'bench-profile-trace' 'Execution trace + go tool trace (override BENCH=...)'
 	@printf '  %-30s %s\n' 'build' 'Build bifrost (./cmd/bifrost)'
+	@printf '  %-30s %s\n' 'build-release' 'GoReleaser snapshot to dist/ (needs goreleaser + syft; no publish)'
 	@printf '  %-30s %s\n' 'build-docker' 'Build Docker image (bifrost:latest)'
 	@printf '  %-30s %s\n' 'format' 'go fmt + gofmt -w'
 	@printf '  %-30s %s\n' 'help' 'Show this message'
@@ -46,8 +47,12 @@ format:
 build:
 	go build -trimpath -ldflags "-s -w -X github.com/lolocompany/bifrost/cmd/bifrost/version.Revision=$(REV) -X github.com/lolocompany/bifrost/cmd/bifrost/version.BuildTime=$(BUILD_TIME)" -o bifrost ./cmd/bifrost
 
-build-docker:
-	docker build -t bifrost:local . --build-arg VERSION=local-dev-$(REV) --build-arg REVISION=$(REV) --build-arg BUILD_TIME=$(BUILD_TIME)
+# Env vars match goreleaser/.goreleaser.yaml (CI sets these in the release workflow).
+# Requires https://github.com/anchore/syft on PATH for SBOM generation.
+build-release:
+	@command -v syft >/dev/null 2>&1 || { echo >&2 "syft not on PATH (install: https://github.com/anchore/syft#installation)"; exit 1; }
+	@command -v goreleaser >/dev/null 2>&1 || { echo >&2 "goreleaser not on PATH (install: https://goreleaser.com/install/)"; exit 1; }
+	BIFROST_BUILD_TIME=$(BUILD_TIME) RELEASE_NAME=local-snapshot RELEASE_BODY='Local snapshot (not a production release).' goreleaser release --snapshot --clean --skip=publish,validate --config goreleaser/.goreleaser.yaml
 
 test:
 	go test -shuffle=on  ./test/unit/...

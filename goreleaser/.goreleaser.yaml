@@ -1,0 +1,128 @@
+# GoReleaser: https://goreleaser.com/
+# Run from repo root (see makefile `build-release` for BIFROST_BUILD_TIME, RELEASE_NAME, RELEASE_BODY):
+#   goreleaser check --config goreleaser/.goreleaser.yaml
+version: 2
+
+project_name: bifrost
+
+before:
+  hooks:
+    - go mod download
+
+builds:
+  - id: bifrost
+    main: ./cmd/bifrost
+    binary: bifrost
+    flags:
+      - -trimpath
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -X github.com/lolocompany/bifrost/cmd/bifrost/version.Version={{ .Tag }}
+      - -X github.com/lolocompany/bifrost/cmd/bifrost/version.Revision={{ .Commit }}
+      - -X github.com/lolocompany/bifrost/cmd/bifrost/version.BuildTime={{ .Env.BIFROST_BUILD_TIME }}
+
+# Loose binaries (same layout as the pre–GoReleaser workflow), not tarballs.
+archives:
+  - id: bifrost
+    formats: [binary]
+    name_template: "{{ .ProjectName }}-{{ .Os }}-{{ .Arch }}"
+    ids:
+      - bifrost
+
+checksum:
+  name_template: checksums.txt
+
+# Syft must be on PATH (CI installs it before GoReleaser).
+# https://goreleaser.com/customization/sbom/
+sboms:
+  - id: bifrost
+    artifacts: binary
+    ids:
+      - bifrost
+    disable: false
+
+# use: git works locally without GITHUB_TOKEN; commit list between tags.
+changelog:
+  use: git
+  sort: asc
+  abbrev: 7
+  filters:
+    exclude:
+      - "(?i)^merge "
+      - "(?i)^merge pull request"
+      - "^chore\\(release\\):"
+      - "^ci:"
+      - "^docs:"
+
+# Multi-arch GHCR image (docker buildx). REGISTRY_IMAGE and PUSH_LATEST come from CI env.
+# https://goreleaser.com/customization/package/dockers_v2/
+dockers_v2:
+  - dockerfile: goreleaser/Dockerfile
+    ids:
+      - bifrost
+    images:
+      - "{{ .Env.REGISTRY_IMAGE }}"
+    tags:
+      - "{{ .Tag }}"
+      - '{{ if eq .Env.PUSH_LATEST "true" }}latest{{ end }}'
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    build_args:
+      VERSION: "{{ .Tag }}"
+      REVISION: "{{ .Commit }}"
+      BUILD_TIME: "{{ .Env.BIFROST_BUILD_TIME }}"
+    disable: "{{ .IsSnapshot }}"
+    sbom: true
+
+release:
+  prerelease: auto
+  name_template: "{{ .Env.RELEASE_NAME }}"
+  # RELEASE_BODY is set by CI / make build-release. Changelog is inserted between header and footer.
+  header: |
+    {{ .Env.RELEASE_BODY }}
+
+  footer: |
+    ## Downloads
+
+    | Asset | Description |
+    |-------|-------------|
+    | `checksums.txt` | SHA256 checksums for all files in this release |
+    | `bifrost_*` | Per-OS/arch binaries |
+    | `*.sbom.json` | SPDX JSON SBOM per binary ([Syft](https://github.com/anchore/syft)) |
+
+    Verify after download (Linux/macOS):
+
+    ```bash
+    sha256sum -c checksums.txt
+    ```
+
+    On Windows, verify the printed SHA256 against the file from `checksums.txt` using your preferred tool.
+
+    {{ if .Env.REGISTRY_IMAGE }}## Container image
+
+    Multi-arch (`linux/amd64`, `linux/arm64`) OCI image on GHCR. The image build includes SBOM attestations (see BuildKit / `dockers_v2`).
+
+    ```bash
+    docker pull {{ .Env.REGISTRY_IMAGE }}:{{ .Tag }}
+    ```
+    {{ end }}
+    ## macOS Gatekeeper
+
+    If macOS shows a Gatekeeper warning (“Apple could not verify…”):
+
+    ```bash
+    # Apple Silicon (arm64)
+    xattr -d com.apple.quarantine bifrost-darwin-arm64
+
+    # Intel (amd64)
+    xattr -d com.apple.quarantine bifrost-darwin-amd64
+    ```

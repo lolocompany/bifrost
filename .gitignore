@@ -45,3 +45,6 @@ bifrost
 !pkg/*
 bench.txt
 tmp
+
+# GoReleaser build output
+dist/

@@ -32,7 +32,13 @@ func ComputeGlobalRelayCap(numBridges int, snap SystemSnapshot) int {
 	memCap := math.MaxInt
 	if snap.AvailableBytes > 0 {
 		usable := snap.AvailableBytes * memoryBudgetPercent / 100
-		est := int(usable / uint64(bytesPerRelayReplicaEstimate))
+		quot := usable / uint64(bytesPerRelayReplicaEstimate)
+		var est int
+		if quot > uint64(math.MaxInt) {
+			est = math.MaxInt
+		} else {
+			est = int(quot)
+		}
 		if est < numBridges {
 			est = numBridges
 		}

@@ -1,5 +1,13 @@
-# Manual release: workflow_dispatch with version tag → cross-compile bifrost → GitHub Release + checksums + GHCR image.
-# Pattern aligned with https://github.com/lolocompany/kafka-replay/blob/main/.github/workflows/release.yml
+# Manual release: workflow_dispatch → validate version → env (intro, timestamps) → git tag →
+# Docker login + Buildx → Install Syft → GoReleaser (trimpath builds, SBOMs, changelog, binaries,
+# checksums, GHCR dockers_v2, GitHub Release with header/footer templates).
+#
+# GoReleaser features used here:
+#   - `-trimpath` builds; Syft SBOMs per binary; `dockers_v2` image SBOM attestations
+#   - Changelog from git history (`changelog.use: git`)
+#   - Release notes: RELEASE_BODY (intro) + changelog + footer (downloads, container, Gatekeeper)
+#
+# Performance: the "Run GoReleaser" step includes Docker buildx; compare timing in the Actions UI.
 name: Release
 
 run-name: Release ${{ inputs.version }} by @${{ github.actor }}
@@ -23,7 +31,6 @@ jobs:
     permissions:
       contents: write
       packages: write
-      actions: write # docker/build-push cache type=gha (read/write Actions cache)
 
     steps:
       - name: Checkout code
@@ -75,53 +82,26 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Record build timestamp
-        run: echo "BIFROST_BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
-
-      - name: Build for Linux AMD64
+      - name: Record build timestamp and release intro
         run: |
-          GOOS=linux GOARCH=amd64 go build -ldflags "-X github.com/lolocompany/bifrost/cmd/bifrost/version.Version=${{ steps.version.outputs.version }} -X github.com/lolocompany/bifrost/cmd/bifrost/version.Revision=${{ github.sha }} -X github.com/lolocompany/bifrost/cmd/bifrost/version.BuildTime=${BIFROST_BUILD_TIME}" -o bifrost-linux-amd64 ./cmd/bifrost
+          echo "BIFROST_BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+          echo "RELEASE_NAME=${{ steps.version.outputs.release_name }}" >> "$GITHUB_ENV"
+          {
+            echo "RELEASE_BODY<<EOF"
+            echo "${{ steps.version.outputs.release_body }}"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
 
-      - name: Build for Linux ARM64
+      - name: Set container registry metadata
         run: |
-          GOOS=linux GOARCH=arm64 go build -ldflags "-X github.com/lolocompany/bifrost/cmd/bifrost/version.Version=${{ steps.version.outputs.version }} -X github.com/lolocompany/bifrost/cmd/bifrost/version.Revision=${{ github.sha }} -X github.com/lolocompany/bifrost/cmd/bifrost/version.BuildTime=${BIFROST_BUILD_TIME}" -o bifrost-linux-arm64 ./cmd/bifrost
-
-      - name: Build for macOS AMD64
-        run: |
-          GOOS=darwin GOARCH=amd64 go build -ldflags "-X github.com/lolocompany/bifrost/cmd/bifrost/version.Version=${{ steps.version.outputs.version }} -X github.com/lolocompany/bifrost/cmd/bifrost/version.Revision=${{ github.sha }} -X github.com/lolocompany/bifrost/cmd/bifrost/version.BuildTime=${BIFROST_BUILD_TIME}" -o bifrost-darwin-amd64 ./cmd/bifrost
-
-      - name: Build for macOS ARM64
-        run: |
-          GOOS=darwin GOARCH=arm64 go build -ldflags "-X github.com/lolocompany/bifrost/cmd/bifrost/version.Version=${{ steps.version.outputs.version }} -X github.com/lolocompany/bifrost/cmd/bifrost/version.Revision=${{ github.sha }} -X github.com/lolocompany/bifrost/cmd/bifrost/version.BuildTime=${BIFROST_BUILD_TIME}" -o bifrost-darwin-arm64 ./cmd/bifrost
-
-      - name: Build for Windows AMD64
-        run: |
-          GOOS=windows GOARCH=amd64 go build -ldflags "-X github.com/lolocompany/bifrost/cmd/bifrost/version.Version=${{ steps.version.outputs.version }} -X github.com/lolocompany/bifrost/cmd/bifrost/version.Revision=${{ github.sha }} -X github.com/lolocompany/bifrost/cmd/bifrost/version.BuildTime=${BIFROST_BUILD_TIME}" -o bifrost-windows-amd64.exe ./cmd/bifrost
-
-      - name: Build for Windows ARM64
-        run: |
-          GOOS=windows GOARCH=arm64 go build -ldflags "-X github.com/lolocompany/bifrost/cmd/bifrost/version.Version=${{ steps.version.outputs.version }} -X github.com/lolocompany/bifrost/cmd/bifrost/version.Revision=${{ github.sha }} -X github.com/lolocompany/bifrost/cmd/bifrost/version.BuildTime=${BIFROST_BUILD_TIME}" -o bifrost-windows-arm64.exe ./cmd/bifrost
-
-      - name: Create checksums
-        run: |
-          sha256sum bifrost-* > checksums.txt
-
-      - name: Set Docker image tags
-        id: docker_tags
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
           OWNER="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
           IMAGE="ghcr.io/${OWNER}/bifrost"
-          TAGS="${IMAGE}:${VERSION}"
-          if [ "${{ inputs.prerelease }}" != "true" ]; then
-            TAGS="$TAGS"$'\n'"${IMAGE}:latest"
+          echo "REGISTRY_IMAGE=${IMAGE}" >> "$GITHUB_ENV"
+          if [ "${{ inputs.prerelease }}" = "true" ]; then
+            echo "PUSH_LATEST=false" >> "$GITHUB_ENV"
+          else
+            echo "PUSH_LATEST=true" >> "$GITHUB_ENV"
           fi
-          {
-            echo "tags<<EOF"
-            echo "$TAGS"
-            echo "EOF"
-            echo "pull_ref=${IMAGE}:${VERSION}"
-          } >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -133,64 +113,40 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v6
+      - name: Create and push release tag
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$VERSION" -m "Release $VERSION" "${GITHUB_SHA}"
+          git push origin "refs/tags/$VERSION"
+
+      - name: Install Syft
+        run: curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+
+      - name: Run GoReleaser
+        id: goreleaser
+        uses: goreleaser/goreleaser-action@v6
         with:
-          context: .
-          file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          build-args: |
-            VERSION=${{ steps.version.outputs.version }}
-            REVISION=${{ github.sha }}
-            BUILD_TIME=${{ env.BIFROST_BUILD_TIME }}
-          tags: ${{ steps.docker_tags.outputs.tags }}
-
-      - name: Create Release
-        id: create_release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.version.outputs.version }}
-          name: ${{ steps.version.outputs.release_name }}
-          body: |
-            ${{ steps.version.outputs.release_body }}
-
-            ## Container image
-
-            ```bash
-            docker pull ${{ steps.docker_tags.outputs.pull_ref }}
-            ```
-
-            ## Assets
-            - Linux AMD64
-            - Linux ARM64
-            - macOS AMD64 (Intel)
-            - macOS ARM64 (Apple Silicon)
-            - Windows AMD64
-            - Windows ARM64
-
-            ## macOS Gatekeeper
-
-            If you see a Gatekeeper warning ("Apple could not verify..."), you can clear the quarantine attribute:
-
-            ```bash
-            # Apple Silicon (ARM64)
-            xattr -d com.apple.quarantine bifrost-darwin-arm64
-
-            # Intel (AMD64)
-            xattr -d com.apple.quarantine bifrost-darwin-amd64
-            ```
-          files: |
-            bifrost-linux-amd64
-            bifrost-linux-arm64
-            bifrost-darwin-amd64
-            bifrost-darwin-arm64
-            bifrost-windows-amd64.exe
-            bifrost-windows-arm64.exe
-            checksums.txt
-          draft: false
-          prerelease: ${{ inputs.prerelease }}
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean --verbose --config goreleaser/.goreleaser.yaml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BIFROST_BUILD_TIME: ${{ env.BIFROST_BUILD_TIME }}
+          RELEASE_NAME: ${{ env.RELEASE_NAME }}
+          RELEASE_BODY: ${{ env.RELEASE_BODY }}
+          GORELEASER_CURRENT_TAG: ${{ steps.version.outputs.version }}
+          REGISTRY_IMAGE: ${{ env.REGISTRY_IMAGE }}
+          PUSH_LATEST: ${{ env.PUSH_LATEST }}
+
+      - name: Job summary (GoReleaser)
+        if: always()
+        run: |
+          {
+            echo "## Release job"
+            echo ""
+            echo "- **GoReleaser**: trimpath builds, Syft SBOMs, git changelog, GHCR image (\`dockers_v2\` + image SBOM), \`checksums.txt\`, GitHub Release."
+            echo ""
+            echo "Inspect **Run GoReleaser** in the Actions UI for build and Docker timing."
+          } >> "$GITHUB_STEP_SUMMARY"
