@@ -22,32 +22,11 @@ func Run(ctx context.Context, cfg config.Config) error {
 		return fmt.Errorf("logging: %w", err)
 	}
 
-	startupAttrs := []any{
-		"bridge_count", len(cfg.Bridges),
-		"periodic_stats_interval", periodicStatsInterval.String(),
-		"metrics_enabled", cfg.Metrics.MetricsEnabled(),
-	}
-	if cfg.Metrics.MetricsEnabled() {
-		startupAttrs = append(startupAttrs, "metrics_listen_addr", cfg.Metrics.ListenAddr)
-	}
-	slog.Debug("run startup", startupAttrs...)
-
 	metricsRegistry, err := metrics.NewFromConfig(cfg)
 	if err != nil {
 		return err
 	}
 	defer metricsRegistry.StopServer()
-
-	for _, br := range cfg.Bridges {
-		slog.Debug("bridge wiring",
-			"bridge", br.Name,
-			"consumer_group", br.EffectiveConsumerGroup(),
-			"from_cluster", br.From.Cluster,
-			"from_topic", br.From.Topic,
-			"to_cluster", br.To.Cluster,
-			"to_topic", br.To.Topic,
-		)
-	}
 
 	producersByCluster, closeProducers, err := buildProducersByDestinationCluster(ctx, cfg, metricsRegistry.BrokerMetrics)
 	if err != nil {
@@ -59,38 +38,127 @@ func Run(ctx context.Context, cfg config.Config) error {
 		return err
 	}
 
+	snap := probeSystemSnapshot()
+	configReplicas := make([]int, len(cfg.Bridges))
+	partitions := make([]int, len(cfg.Bridges))
+	for i, bridgeCfg := range cfg.Bridges {
+		configReplicas[i] = bridgeCfg.Replicas
+		if bridgeCfg.Replicas != 0 {
+			partitions[i] = 0
+			continue
+		}
+		fromCluster := cfg.Clusters[bridgeCfg.From.Cluster]
+		n, err := sourceTopicPartitionCount(ctx, bridgeCfg, fromCluster, producersByCluster, metricsRegistry.BrokerMetrics)
+		if err != nil {
+			return fmt.Errorf("bridge %q source topic partitions: %w", bridgeCfg.Name, err)
+		}
+		partitions[i] = n
+	}
+
+	effReplicas, plan, err := PlanReplicaCounts(configReplicas, partitions, snap)
+	if err != nil {
+		return err
+	}
+
+	autoBridgeCount := 0
+	for _, r := range configReplicas {
+		if r == 0 {
+			autoBridgeCount++
+		}
+	}
+
+	if plan.ExplicitReplicaSum > plan.GlobalSoftCap {
+		slog.Warn("configured bridge replicas exceed soft global relay cap",
+			"explicit_replica_sum", plan.ExplicitReplicaSum,
+			"global_soft_cap", plan.GlobalSoftCap,
+		)
+	}
+	if autoBridgeCount > 0 && plan.HeadroomForAuto < autoBridgeCount {
+		slog.Warn("not enough relay headroom for automatic replica targets; using one relay per auto-sized bridge",
+			"auto_bridges", autoBridgeCount,
+			"headroom", plan.HeadroomForAuto,
+		)
+	} else if autoBridgeCount > 0 && plan.HeadroomForAuto >= autoBridgeCount && plan.AutoRawTargetSum > plan.HeadroomForAuto {
+		slog.Info("replica autoscale applied global fair-share",
+			"auto_raw_target_sum", plan.AutoRawTargetSum,
+			"headroom", plan.HeadroomForAuto,
+			"gomaxprocs", snap.GOMAXPROCS,
+		)
+	}
+
+	bridgeWorkers := 0
+	for _, n := range effReplicas {
+		bridgeWorkers += n
+	}
+
+	startupAttrs := []any{
+		"bridge_count", len(cfg.Bridges),
+		"bridge_worker_count", bridgeWorkers,
+		"relay_global_soft_cap", plan.GlobalSoftCap,
+		"periodic_stats_interval", periodicStatsInterval.String(),
+		"metrics_enabled", cfg.Metrics.MetricsEnabled(),
+	}
+	if snap.AvailableBytes > 0 {
+		startupAttrs = append(startupAttrs, "memory_available_bytes", snap.AvailableBytes)
+	}
+	if cfg.Metrics.MetricsEnabled() {
+		startupAttrs = append(startupAttrs, "metrics_listen_addr", cfg.Metrics.ListenAddr)
+	}
+	slog.Debug("run startup", startupAttrs...)
+
+	for i, br := range cfg.Bridges {
+		slog.Debug("bridge wiring",
+			"bridge", br.Name,
+			"replicas", effReplicas[i],
+			"replicas_config", br.Replicas,
+			"consumer_group", br.EffectiveConsumerGroup(),
+			"from_cluster", br.From.Cluster,
+			"from_topic", br.From.Topic,
+			"to_cluster", br.To.Cluster,
+			"to_topic", br.To.Topic,
+		)
+	}
+
 	eg, ctx := errgroup.WithContext(ctx)
-	for _, bridgeCfg := range cfg.Bridges {
-		eg.Go(func() error {
-			fromCluster := cfg.Clusters[bridgeCfg.From.Cluster]
+	for i, bridgeCfg := range cfg.Bridges {
+		n := effReplicas[i]
+		for replica := range n {
+			bridgeCfg := bridgeCfg
+			replica := replica
+			eg.Go(func() error {
+				fromCluster := cfg.Clusters[bridgeCfg.From.Cluster]
 
-			runOpts, err := BridgeRunOptions(periodicStatsInterval, fromCluster, cfg.Clusters[bridgeCfg.To.Cluster])
-			if err != nil {
-				return fmt.Errorf("bridge %q retry config: %w", bridgeCfg.Name, err)
-			}
-			runOpts.ExtraHeaders = recordHeadersFromExtraHeaders(bridgeCfg.ExtraHeaders)
-
-			consumer, err := newConsumer(ctx, bridgeCfg, fromCluster, metricsRegistry.BrokerMetrics)
-			if err != nil {
-				return err
-			}
-			defer consumer.Close()
-
-			producer := producersByCluster[bridgeCfg.To.Cluster]
-			slog.Info("bridge starting",
-				"bridge", bridgeCfg.Name,
-				"consumer_group", bridgeCfg.EffectiveConsumerGroup(),
-				"from_cluster", bridgeCfg.From.Cluster,
-				"to_cluster", bridgeCfg.To.Cluster,
-			)
-			if err := bridge.Run(ctx, bridge.IdentityFrom(bridgeCfg), consumer, producer, metricsRegistry.BridgeMetrics, runOpts); err != nil {
-				if errors.Is(err, context.Canceled) {
-					return nil
+				runOpts, err := BridgeRunOptions(periodicStatsInterval, fromCluster, cfg.Clusters[bridgeCfg.To.Cluster])
+				if err != nil {
+					return fmt.Errorf("bridge %q retry config: %w", bridgeCfg.Name, err)
 				}
-				return fmt.Errorf("bridge %q: %w", bridgeCfg.Name, err)
-			}
-			return nil
-		})
+				runOpts.ExtraHeaders = recordHeadersFromExtraHeaders(bridgeCfg.ExtraHeaders)
+
+				consumer, err := newConsumer(ctx, bridgeCfg, fromCluster, metricsRegistry.BrokerMetrics)
+				if err != nil {
+					return err
+				}
+				defer consumer.Close()
+
+				producer := producersByCluster[bridgeCfg.To.Cluster]
+				slog.Info("bridge starting",
+					"bridge", bridgeCfg.Name,
+					"replica", replica,
+					"replicas", n,
+					"replicas_config", bridgeCfg.Replicas,
+					"consumer_group", bridgeCfg.EffectiveConsumerGroup(),
+					"from_cluster", bridgeCfg.From.Cluster,
+					"to_cluster", bridgeCfg.To.Cluster,
+				)
+				if err := bridge.Run(ctx, bridge.IdentityFrom(bridgeCfg), consumer, producer, metricsRegistry.BridgeMetrics, runOpts); err != nil {
+					if errors.Is(err, context.Canceled) {
+						return nil
+					}
+					return fmt.Errorf("bridge %q replica %d: %w", bridgeCfg.Name, replica, err)
+				}
+				return nil
+			})
+		}
 	}
 	return eg.Wait()
 }

@@ -105,6 +105,10 @@ bridges:
       cluster: 'cluster_b'
       # Required destination topic.
       topic: 'outgoing'
+    # Optional: relay goroutines for this bridge. Omit or set 0 for automatic sizing from the
+    # from.topic partition count (after topic ensure), with host-based caps and fair-sharing across
+    # bridges. Set a positive integer to fix the replica count explicitly.
+    # replicas: 4
     # Optional consumer group. Defaults to "bifrost-<sanitized bridge name>" when omitted.
     # consumer_group: "bifrost-a-to-b"
     # Optional string Kafka headers added to every produced record (after bifrost.source.*, before

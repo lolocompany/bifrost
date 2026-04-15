@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -276,6 +277,123 @@ func TestEffectiveConsumerGroup_explicit(t *testing.T) {
 	b := config.Bridge{Name: "x", ConsumerGroup: "my-group"}
 	if b.EffectiveConsumerGroup() != "my-group" {
 		t.Fatalf("got %q", b.EffectiveConsumerGroup())
+	}
+}
+
+func TestParse_bridgeReplicasDefaultAndExplicit(t *testing.T) {
+	const minimal = `
+clusters:
+  east:
+    brokers: ["127.0.0.1:9092"]
+  west:
+    brokers: ["127.0.0.1:9093"]
+`
+	t.Run("default", func(t *testing.T) {
+		cfg, err := config.Parse([]byte(minimal + `
+bridges:
+  - name: east-to-west
+    from: { cluster: east, topic: in }
+    to: { cluster: west, topic: out }
+metrics:
+  enabled: false
+logging:
+  level: info
+  stream: stdout
+`))
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if cfg.Bridges[0].Replicas != 0 {
+			t.Fatalf("default replicas: want 0 (resolved at runtime), got %d", cfg.Bridges[0].Replicas)
+		}
+	})
+	t.Run("explicit", func(t *testing.T) {
+		cfg, err := config.Parse([]byte(minimal + `
+bridges:
+  - name: east-to-west
+    replicas: 4
+    from: { cluster: east, topic: in }
+    to: { cluster: west, topic: out }
+metrics:
+  enabled: false
+logging:
+  level: info
+  stream: stdout
+`))
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if cfg.Bridges[0].Replicas != 4 {
+			t.Fatalf("replicas: want 4, got %d", cfg.Bridges[0].Replicas)
+		}
+	})
+	t.Run("zero_means_topic_partitions", func(t *testing.T) {
+		cfg, err := config.Parse([]byte(minimal + `
+bridges:
+  - name: east-to-west
+    replicas: 0
+    from: { cluster: east, topic: in }
+    to: { cluster: west, topic: out }
+metrics:
+  enabled: false
+logging:
+  level: info
+  stream: stdout
+`))
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if cfg.Bridges[0].Replicas != 0 {
+			t.Fatalf("replicas 0: want 0 in config, got %d", cfg.Bridges[0].Replicas)
+		}
+	})
+}
+
+func TestParse_bridgeReplicasNegative(t *testing.T) {
+	const yamlDoc = `
+clusters:
+  east:
+    brokers: ["127.0.0.1:9092"]
+  west:
+    brokers: ["127.0.0.1:9093"]
+bridges:
+  - name: east-to-west
+    replicas: -1
+    from: { cluster: east, topic: in }
+    to: { cluster: west, topic: out }
+metrics:
+  enabled: false
+logging:
+  level: info
+  stream: stdout
+`
+	_, err := config.Parse([]byte(yamlDoc))
+	if err == nil {
+		t.Fatal("Parse: expected error for negative replicas")
+	}
+}
+
+func TestParse_bridgeReplicasTooLarge(t *testing.T) {
+	yamlDoc := fmt.Sprintf(`
+clusters:
+  east:
+    brokers: ["127.0.0.1:9092"]
+  west:
+    brokers: ["127.0.0.1:9093"]
+bridges:
+  - name: east-to-west
+    replicas: %d
+    from: { cluster: east, topic: in }
+    to: { cluster: west, topic: out }
+metrics:
+  enabled: false
+logging:
+  level: info
+  stream: stdout
+`, config.MaxReplicas+1)
+	_, err := config.Parse([]byte(yamlDoc))
+	if err == nil {
+		t.Fatal("Parse: expected error for replicas above max")
 	}
 }
 

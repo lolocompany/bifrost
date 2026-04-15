@@ -11,7 +11,7 @@ Important product facts (from the README and code):
 - **Bridge (config):** One YAML `bridges[]` entry is a **directional** path: `from` (cluster + topic) → `to` (cluster + topic). The type is `config.Bridge`. Optional `extra_headers` adds string Kafka headers on the to-side record (after `bifrost.source.*`); keys must not use the `bifrost.*` prefix. This is the user-facing word in docs and config.
 - **Relay (behavior):** The **pkg/bridge** package implements the **relay loop** (`bridge.Run`): consume → produce → commit, with retries and `bifrost.source.*` headers for downstream deduplication. README and metrics often say **relay** (`bifrost_relay_*`).
 - **Clusters:** Named broker profiles under `clusters:`; consumer settings apply on the **from** side, producer settings on the **to** side.
-- **Process:** One OS process can run **many bridges in parallel** (one goroutine per configured bridge, coordinated with `errgroup`).
+- **Process:** One OS process runs **`pkg/bifrost.Run`** with `errgroup`. Each `bridges[]` entry can run multiple `bridge.Run` goroutines: **`replicas`** omitted or **0** uses **automatic sizing** from the source topic partition count (after topic ensure) with **CPU-/memory-based caps** and **global fair-sharing** across bridges (see `pkg/bifrost` replica budgeting and `SystemSnapshot`); a positive `replicas` fixes the relay goroutine count (each with its own from-side consumer and shared to-side producer).
 
 Do **not** conflate:
 

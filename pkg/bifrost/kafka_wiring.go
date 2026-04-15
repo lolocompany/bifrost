@@ -100,6 +100,28 @@ func newConsumer(ctx context.Context, bridgeCfg config.Bridge, fromCluster confi
 	return consumer, nil
 }
 
+func sourceTopicPartitionCount(ctx context.Context, bridgeCfg config.Bridge, fromClusterCfg config.Cluster, producersByCluster map[string]*kgo.Client, brokerMetrics metrics.BrokerMetrics) (int, error) {
+	clusterName := bridgeCfg.From.Cluster
+	client := producersByCluster[clusterName]
+	closeAfter := false
+	if client == nil {
+		tmp, err := newProducer(ctx, clusterName, fromClusterCfg, brokerMetrics)
+		if err != nil {
+			return 0, fmt.Errorf("cluster %q: %w", clusterName, err)
+		}
+		client = tmp
+		closeAfter = true
+	}
+	if closeAfter {
+		defer client.Close()
+	}
+	n, err := kafka.TopicPartitionCount(ctx, client, bridgeCfg.From.Topic)
+	if err != nil {
+		return 0, fmt.Errorf("topic %q on cluster %q: %w", bridgeCfg.From.Topic, clusterName, err)
+	}
+	return n, nil
+}
+
 func ensureTopicsForCluster(
 	ctx context.Context,
 	clusterCfg config.Cluster,

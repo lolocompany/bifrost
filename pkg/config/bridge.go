@@ -7,11 +7,20 @@ import (
 	"unicode"
 )
 
+// MaxReplicas is the upper bound for an explicit [Bridge.Replicas] value (relay goroutines per bridge).
+const MaxReplicas = 4096
+
 // Bridge defines one directional relay between two clusters and topics (from → to).
 type Bridge struct {
-	Name          string            `yaml:"name"`
-	From          BridgeTarget      `yaml:"from"`
-	To            BridgeTarget      `yaml:"to"`
+	Name string       `yaml:"name"`
+	From BridgeTarget `yaml:"from"`
+	To   BridgeTarget `yaml:"to"`
+	// Replicas is relay goroutines for this bridge. Use 0 or omit for automatic sizing from the
+	// source topic partition count (after topic ensure), subject to process-wide heuristics in
+	// pkg/bifrost. If set (>0), that many goroutines run; each uses the same to-side producer and
+	// its own from-side consumer; consumers share EffectiveConsumerGroup() so partitions are split
+	// across group members.
+	Replicas      int               `yaml:"replicas"`
 	ConsumerGroup string            `yaml:"consumer_group"`
 	ExtraHeaders  map[string]string `yaml:"extra_headers,omitempty"`
 }
@@ -37,6 +46,12 @@ func (b *Bridge) validate(clusters map[string]Cluster) error {
 	}
 	if err := validateExtraHeaders(b.ExtraHeaders); err != nil {
 		return err
+	}
+	if b.Replicas < 0 {
+		return errors.New("replicas must be 0 (automatic sizing) or at least 1")
+	}
+	if b.Replicas > MaxReplicas {
+		return fmt.Errorf("replicas must be at most %d", MaxReplicas)
 	}
 	return nil
 }
