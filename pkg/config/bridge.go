@@ -20,7 +20,14 @@ type Bridge struct {
 	// pkg/bifrost. If set (>0), that many goroutines run; each uses the same to-side producer and
 	// its own from-side consumer; consumers share EffectiveConsumerGroup() so partitions are split
 	// across group members.
-	Replicas      int               `yaml:"replicas"`
+	Replicas int `yaml:"replicas"`
+	// BatchSize controls how many source records from the same topic-partition are produced and
+	// committed together. Omit or set 0 to use 1 (effectively disabling batching).
+	BatchSize int `yaml:"batch_size"`
+	// OverridePartition forces all produced records for this bridge onto one destination partition.
+	OverridePartition *int32 `yaml:"override_partition,omitempty"`
+	// OverrideKey replaces the Kafka key on every produced record for this bridge.
+	OverrideKey   *string           `yaml:"override_key,omitempty"`
 	ConsumerGroup string            `yaml:"consumer_group"`
 	ExtraHeaders  map[string]string `yaml:"extra_headers,omitempty"`
 }
@@ -52,6 +59,12 @@ func (b *Bridge) validate(clusters map[string]Cluster) error {
 	}
 	if b.Replicas > MaxReplicas {
 		return fmt.Errorf("replicas must be at most %d", MaxReplicas)
+	}
+	if b.BatchSize < 0 {
+		return errors.New("batch_size must be 0 (disabled) or at least 1")
+	}
+	if b.OverridePartition != nil && *b.OverridePartition < 0 {
+		return errors.New("override_partition must be at least 0")
 	}
 	return nil
 }
@@ -94,6 +107,36 @@ func (b *Bridge) EffectiveConsumerGroup() string {
 		return strings.TrimSpace(b.ConsumerGroup)
 	}
 	return "bifrost-" + sanitizeName(b.Name)
+}
+
+// EffectiveBatchSize returns the configured batch size, defaulting to 1 when omitted or zero.
+func (b *Bridge) EffectiveBatchSize() int {
+	if b == nil || b.BatchSize == 0 {
+		return 1
+	}
+	return b.BatchSize
+}
+
+// EffectiveOverridePartition returns the configured destination partition override, if any.
+func (b *Bridge) EffectiveOverridePartition() (int32, bool) {
+	if b == nil || b.OverridePartition == nil {
+		return 0, false
+	}
+	return *b.OverridePartition, true
+}
+
+// EffectiveOverrideKey returns the configured key override, if any.
+func (b *Bridge) EffectiveOverrideKey() (string, bool) {
+	if b == nil || b.OverrideKey == nil {
+		return "", false
+	}
+	return *b.OverrideKey, true
+}
+
+// PartitionsPreserved reports whether source partition IDs should be copied to produced records.
+func (b *Bridge) PartitionsPreserved() bool {
+	_, ok := b.EffectiveOverridePartition()
+	return !ok
 }
 
 func sanitizeName(s string) string {

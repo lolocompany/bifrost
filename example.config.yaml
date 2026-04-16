@@ -109,6 +109,15 @@ bridges:
     # from.topic partition count (after topic ensure), with host-based caps and fair-sharing across
     # bridges. Set a positive integer to fix the replica count explicitly.
     # replicas: 4
+    # Optional: maximum records to relay at once from one source topic-partition. Omit or set 1
+    # to disable batching. Produce and commit still happen in order per source partition.
+    # batch_size: 1
+    # Optional: force all produced records for this bridge onto one destination partition. When
+    # omitted, bifrost preserves the source partition number on each record. If set, the
+    # destination topic must contain that partition index.
+    # override_partition: 0
+    # Optional: replace the Kafka key on every produced record for this bridge with a fixed string.
+    # override_key: 'static-key'
     # Optional consumer group. Defaults to "bifrost-<sanitized bridge name>" when omitted.
     # consumer_group: "bifrost-a-to-b"
     # Optional string Kafka headers added to every produced record (after bifrost.source.*, before

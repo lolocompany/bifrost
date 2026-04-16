@@ -81,6 +81,14 @@ bridges:
     to:
       cluster: prod
       topic: outgoing
+    # Optional bridge-local relay batching. Defaults to 1 (disabled).
+    # batch_size: 1
+    # Optional fixed destination partition override. When omitted, bifrost preserves
+    # the source partition number on each record. If set, the destination topic
+    # must contain that partition index.
+    # override_partition: 0
+    # Optional fixed key override applied to every produced record for this bridge.
+    # override_key: "static-key"
 ```
 
 ### Relay failure handling
@@ -88,7 +96,7 @@ bridges:
 Bridge stages do not all fail the process the same way:
 
 - `poll fetches` errors are counted, logged, and retried immediately with no backoff.
-- Destination `produce` failures retry the same record in-place with exponential backoff plus additive jitter.
+- Destination `produce` failures retry the same record or source-partition batch in-place with exponential backoff plus additive jitter.
 - Source offset `commit` failures retry the same commit in-place with exponential backoff plus additive jitter.
 - Unexpected source-topic mismatches are treated as fatal and stop the bridge.
 
@@ -129,7 +137,7 @@ Contributor and agent-oriented notes on layout and naming: `[docs/AGENTS.md](./d
 
 ## Downstream deduplication (source headers)
 
-Every relayed record includes **source coordinate** headers so consumers can treat deliveries as **at-least-once** and still process each logical message once. The bridge always sets these; optional per-bridge `**extra_headers`** in YAML are added next, then any headers copied from the source record. Extra header keys must not use the `**bifrost.\*\*\*` prefix (reserved for the relay).
+Every relayed record includes **source coordinate** headers so consumers can treat deliveries as **at-least-once** and still process each logical message once. The bridge always sets these; optional per-bridge `**extra_headers`** in YAML are added next, then any headers copied from the source record. Extra header keys must not use the `**bifrost.\*\*\*` prefix (reserved for the relay). By default, bifrost writes each destination record to the same partition number as the source record, so the destination topic must have at least as many partitions as the source topic. `override_partition` can force all records on a bridge to one destination partition instead, and `override_key` can replace every produced record key with a fixed string. `batch_size` groups records by source topic-partition, but offsets are still committed only after the matching produce succeeds.
 
 | Header                     | Value                                                    |
 | -------------------------- | -------------------------------------------------------- |

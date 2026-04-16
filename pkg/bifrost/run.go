@@ -42,12 +42,26 @@ func Run(ctx context.Context, cfg config.Config) error {
 	configReplicas := make([]int, len(cfg.Bridges))
 	partitions := make([]int, len(cfg.Bridges))
 	for i, bridgeCfg := range cfg.Bridges {
+		fromCluster := cfg.Clusters[bridgeCfg.From.Cluster]
+		if bridgeCfg.PartitionsPreserved() {
+			sourcePartitions, err := sourceTopicPartitionCount(ctx, bridgeCfg, fromCluster, producersByCluster, metricsRegistry.BrokerMetrics)
+			if err != nil {
+				return fmt.Errorf("bridge %q source topic partitions: %w", bridgeCfg.Name, err)
+			}
+			destPartitions, err := topicPartitionCount(ctx, bridgeCfg.To.Cluster, bridgeCfg.To.Topic, cfg.Clusters[bridgeCfg.To.Cluster], producersByCluster, metricsRegistry.BrokerMetrics)
+			if err != nil {
+				return fmt.Errorf("bridge %q destination topic partitions: %w", bridgeCfg.Name, err)
+			}
+			if err := ValidatePreservedPartitionCounts(bridgeCfg, sourcePartitions, destPartitions); err != nil {
+				return err
+			}
+		}
+
 		configReplicas[i] = bridgeCfg.Replicas
 		if bridgeCfg.Replicas != 0 {
 			partitions[i] = 0
 			continue
 		}
-		fromCluster := cfg.Clusters[bridgeCfg.From.Cluster]
 		n, err := sourceTopicPartitionCount(ctx, bridgeCfg, fromCluster, producersByCluster, metricsRegistry.BrokerMetrics)
 		if err != nil {
 			return fmt.Errorf("bridge %q source topic partitions: %w", bridgeCfg.Name, err)
@@ -128,7 +142,7 @@ func Run(ctx context.Context, cfg config.Config) error {
 			eg.Go(func() error {
 				fromCluster := cfg.Clusters[bridgeCfg.From.Cluster]
 
-				runOpts, err := BridgeRunOptions(periodicStatsInterval, fromCluster, cfg.Clusters[bridgeCfg.To.Cluster])
+				runOpts, err := BridgeRunOptions(periodicStatsInterval, bridgeCfg, fromCluster, cfg.Clusters[bridgeCfg.To.Cluster])
 				if err != nil {
 					return fmt.Errorf("bridge %q retry config: %w", bridgeCfg.Name, err)
 				}
@@ -161,4 +175,40 @@ func Run(ctx context.Context, cfg config.Config) error {
 		}
 	}
 	return eg.Wait()
+}
+
+// ValidatePreservedPartitionCounts checks whether a bridge can preserve source partition IDs on
+// its destination topic or force records onto a configured destination partition.
+func ValidatePreservedPartitionCounts(bridgeCfg config.Bridge, sourcePartitions, destPartitions int) error {
+	if overridePartition, ok := bridgeCfg.EffectiveOverridePartition(); ok {
+		if int(overridePartition) < destPartitions {
+			return nil
+		}
+		return fmt.Errorf(
+			"bridge %q override_partition=%d requires destination topic %q on cluster %q to have at least %d partitions (destination has %d)",
+			bridgeCfg.Name,
+			overridePartition,
+			bridgeCfg.To.Topic,
+			bridgeCfg.To.Cluster,
+			int(overridePartition)+1,
+			destPartitions,
+		)
+	}
+	if !bridgeCfg.PartitionsPreserved() {
+		return nil
+	}
+	if destPartitions >= sourcePartitions {
+		return nil
+	}
+	return fmt.Errorf(
+		"bridge %q requires destination topic %q on cluster %q to have at least %d partitions to preserve source partitions (source %q on cluster %q has %d, destination has %d)",
+		bridgeCfg.Name,
+		bridgeCfg.To.Topic,
+		bridgeCfg.To.Cluster,
+		sourcePartitions,
+		bridgeCfg.From.Topic,
+		bridgeCfg.From.Cluster,
+		sourcePartitions,
+		destPartitions,
+	)
 }

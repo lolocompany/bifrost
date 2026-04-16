@@ -280,6 +280,63 @@ func TestEffectiveConsumerGroup_explicit(t *testing.T) {
 	}
 }
 
+func TestBridgeEffectiveBatchSize_defaultAndExplicit(t *testing.T) {
+	t.Run("default", func(t *testing.T) {
+		b := config.Bridge{}
+		if got := b.EffectiveBatchSize(); got != 1 {
+			t.Fatalf("default batch size: want 1, got %d", got)
+		}
+	})
+
+	t.Run("zero_means_disabled_batching", func(t *testing.T) {
+		b := config.Bridge{BatchSize: 0}
+		if got := b.EffectiveBatchSize(); got != 1 {
+			t.Fatalf("zero batch size: want 1, got %d", got)
+		}
+	})
+
+	t.Run("explicit", func(t *testing.T) {
+		b := config.Bridge{BatchSize: 32}
+		if got := b.EffectiveBatchSize(); got != 32 {
+			t.Fatalf("explicit batch size: want 32, got %d", got)
+		}
+	})
+}
+
+func TestBridgeEffectiveOverridePartition(t *testing.T) {
+	t.Run("unset", func(t *testing.T) {
+		b := config.Bridge{}
+		if got, ok := b.EffectiveOverridePartition(); ok || got != 0 {
+			t.Fatalf("override partition = (%d, %t), want (0, false)", got, ok)
+		}
+	})
+
+	t.Run("set", func(t *testing.T) {
+		partition := int32(7)
+		b := config.Bridge{OverridePartition: &partition}
+		if got, ok := b.EffectiveOverridePartition(); !ok || got != 7 {
+			t.Fatalf("override partition = (%d, %t), want (7, true)", got, ok)
+		}
+	})
+}
+
+func TestBridgeEffectiveOverrideKey(t *testing.T) {
+	t.Run("unset", func(t *testing.T) {
+		b := config.Bridge{}
+		if got, ok := b.EffectiveOverrideKey(); ok || got != "" {
+			t.Fatalf("override key = (%q, %t), want (\"\", false)", got, ok)
+		}
+	})
+
+	t.Run("set", func(t *testing.T) {
+		key := ""
+		b := config.Bridge{OverrideKey: &key}
+		if got, ok := b.EffectiveOverrideKey(); !ok || got != "" {
+			t.Fatalf("override key = (%q, %t), want (\"\", true)", got, ok)
+		}
+	})
+}
+
 func TestParse_bridgeReplicasDefaultAndExplicit(t *testing.T) {
 	const minimal = `
 clusters:
@@ -395,6 +452,213 @@ logging:
 	if err == nil {
 		t.Fatal("Parse: expected error for replicas above max")
 	}
+}
+
+func TestParse_bridgeBatchSizeDefaultAndExplicit(t *testing.T) {
+	const minimal = `
+clusters:
+  east:
+    brokers: ["127.0.0.1:9092"]
+  west:
+    brokers: ["127.0.0.1:9093"]
+`
+	t.Run("default", func(t *testing.T) {
+		cfg, err := config.Parse([]byte(minimal + `
+bridges:
+  - name: east-to-west
+    from: { cluster: east, topic: in }
+    to: { cluster: west, topic: out }
+metrics:
+  enabled: false
+logging:
+  level: info
+  stream: stdout
+`))
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if got := cfg.Bridges[0].EffectiveBatchSize(); got != 1 {
+			t.Fatalf("default batch size: want 1, got %d", got)
+		}
+	})
+
+	t.Run("explicit", func(t *testing.T) {
+		cfg, err := config.Parse([]byte(minimal + `
+bridges:
+  - name: east-to-west
+    batch_size: 16
+    from: { cluster: east, topic: in }
+    to: { cluster: west, topic: out }
+metrics:
+  enabled: false
+logging:
+  level: info
+  stream: stdout
+`))
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if cfg.Bridges[0].BatchSize != 16 {
+			t.Fatalf("batch_size: want 16, got %d", cfg.Bridges[0].BatchSize)
+		}
+		if got := cfg.Bridges[0].EffectiveBatchSize(); got != 16 {
+			t.Fatalf("effective batch size: want 16, got %d", got)
+		}
+	})
+}
+
+func TestParse_bridgeBatchSizeNegative(t *testing.T) {
+	const yamlDoc = `
+clusters:
+  east:
+    brokers: ["127.0.0.1:9092"]
+  west:
+    brokers: ["127.0.0.1:9093"]
+bridges:
+  - name: east-to-west
+    batch_size: -1
+    from: { cluster: east, topic: in }
+    to: { cluster: west, topic: out }
+metrics:
+  enabled: false
+logging:
+  level: info
+  stream: stdout
+`
+	_, err := config.Parse([]byte(yamlDoc))
+	if err == nil {
+		t.Fatal("Parse: expected error for negative batch_size")
+	}
+}
+
+func TestParse_bridgeOverridePartitionDefaultAndExplicit(t *testing.T) {
+	const minimal = `
+clusters:
+  east:
+    brokers: ["127.0.0.1:9092"]
+  west:
+    brokers: ["127.0.0.1:9093"]
+`
+	t.Run("default", func(t *testing.T) {
+		cfg, err := config.Parse([]byte(minimal + `
+bridges:
+  - name: east-to-west
+    from: { cluster: east, topic: in }
+    to: { cluster: west, topic: out }
+metrics:
+  enabled: false
+logging:
+  level: info
+  stream: stdout
+`))
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if got, ok := cfg.Bridges[0].EffectiveOverridePartition(); ok || got != 0 {
+			t.Fatalf("default override partition = (%d, %t), want (0, false)", got, ok)
+		}
+	})
+
+	t.Run("explicit", func(t *testing.T) {
+		cfg, err := config.Parse([]byte(minimal + `
+bridges:
+  - name: east-to-west
+    override_partition: 5
+    from: { cluster: east, topic: in }
+    to: { cluster: west, topic: out }
+metrics:
+  enabled: false
+logging:
+  level: info
+  stream: stdout
+`))
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if cfg.Bridges[0].OverridePartition == nil {
+			t.Fatal("override_partition pointer: want non-nil")
+		}
+		if got, ok := cfg.Bridges[0].EffectiveOverridePartition(); !ok || got != 5 {
+			t.Fatalf("override partition = (%d, %t), want (5, true)", got, ok)
+		}
+	})
+}
+
+func TestParse_bridgeOverridePartitionNegative(t *testing.T) {
+	const yamlDoc = `
+clusters:
+  east:
+    brokers: ["127.0.0.1:9092"]
+  west:
+    brokers: ["127.0.0.1:9093"]
+bridges:
+  - name: east-to-west
+    override_partition: -1
+    from: { cluster: east, topic: in }
+    to: { cluster: west, topic: out }
+metrics:
+  enabled: false
+logging:
+  level: info
+  stream: stdout
+`
+	_, err := config.Parse([]byte(yamlDoc))
+	if err == nil {
+		t.Fatal("Parse: expected error for negative override_partition")
+	}
+}
+
+func TestParse_bridgeOverrideKeyDefaultAndExplicit(t *testing.T) {
+	const minimal = `
+clusters:
+  east:
+    brokers: ["127.0.0.1:9092"]
+  west:
+    brokers: ["127.0.0.1:9093"]
+`
+	t.Run("default", func(t *testing.T) {
+		cfg, err := config.Parse([]byte(minimal + `
+bridges:
+  - name: east-to-west
+    from: { cluster: east, topic: in }
+    to: { cluster: west, topic: out }
+metrics:
+  enabled: false
+logging:
+  level: info
+  stream: stdout
+`))
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if got, ok := cfg.Bridges[0].EffectiveOverrideKey(); ok || got != "" {
+			t.Fatalf("default override key = (%q, %t), want (\"\", false)", got, ok)
+		}
+	})
+
+	t.Run("explicit", func(t *testing.T) {
+		cfg, err := config.Parse([]byte(minimal + `
+bridges:
+  - name: east-to-west
+    override_key: "static-key"
+    from: { cluster: east, topic: in }
+    to: { cluster: west, topic: out }
+metrics:
+  enabled: false
+logging:
+  level: info
+  stream: stdout
+`))
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if cfg.Bridges[0].OverrideKey == nil {
+			t.Fatal("override_key pointer: want non-nil")
+		}
+		if got, ok := cfg.Bridges[0].EffectiveOverrideKey(); !ok || got != "static-key" {
+			t.Fatalf("override key = (%q, %t), want (\"static-key\", true)", got, ok)
+		}
+	})
 }
 
 func TestParse_clusterKafkaTuning(t *testing.T) {

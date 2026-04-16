@@ -100,12 +100,11 @@ func newConsumer(ctx context.Context, bridgeCfg config.Bridge, fromCluster confi
 	return consumer, nil
 }
 
-func sourceTopicPartitionCount(ctx context.Context, bridgeCfg config.Bridge, fromClusterCfg config.Cluster, producersByCluster map[string]*kgo.Client, brokerMetrics metrics.BrokerMetrics) (int, error) {
-	clusterName := bridgeCfg.From.Cluster
+func topicPartitionCount(ctx context.Context, clusterName, topic string, clusterCfg config.Cluster, producersByCluster map[string]*kgo.Client, brokerMetrics metrics.BrokerMetrics) (int, error) {
 	client := producersByCluster[clusterName]
 	closeAfter := false
 	if client == nil {
-		tmp, err := newProducer(ctx, clusterName, fromClusterCfg, brokerMetrics)
+		tmp, err := newProducer(ctx, clusterName, clusterCfg, brokerMetrics)
 		if err != nil {
 			return 0, fmt.Errorf("cluster %q: %w", clusterName, err)
 		}
@@ -115,11 +114,15 @@ func sourceTopicPartitionCount(ctx context.Context, bridgeCfg config.Bridge, fro
 	if closeAfter {
 		defer client.Close()
 	}
-	n, err := kafka.TopicPartitionCount(ctx, client, bridgeCfg.From.Topic)
+	n, err := kafka.TopicPartitionCount(ctx, client, topic)
 	if err != nil {
-		return 0, fmt.Errorf("topic %q on cluster %q: %w", bridgeCfg.From.Topic, clusterName, err)
+		return 0, fmt.Errorf("topic %q on cluster %q: %w", topic, clusterName, err)
 	}
 	return n, nil
+}
+
+func sourceTopicPartitionCount(ctx context.Context, bridgeCfg config.Bridge, fromClusterCfg config.Cluster, producersByCluster map[string]*kgo.Client, brokerMetrics metrics.BrokerMetrics) (int, error) {
+	return topicPartitionCount(ctx, bridgeCfg.From.Cluster, bridgeCfg.From.Topic, fromClusterCfg, producersByCluster, brokerMetrics)
 }
 
 func ensureTopicsForCluster(
@@ -199,8 +202,8 @@ func tcpDialRecorder(broker metrics.BrokerMetrics, cluster string) func(float64)
 	return broker.TCPDialRecorder(cluster)
 }
 
-// BridgeRunOptions builds bridge.RunOptions from validated cluster config.
-func BridgeRunOptions(periodicStatsInterval time.Duration, fromCluster, toCluster config.Cluster) (bridge.RunOptions, error) {
+// BridgeRunOptions builds bridge.RunOptions from validated bridge and cluster config.
+func BridgeRunOptions(periodicStatsInterval time.Duration, bridgeCfg config.Bridge, fromCluster, toCluster config.Cluster) (bridge.RunOptions, error) {
 	commitRetry, err := fromCluster.Consumer.CommitRetry.Durations("consumer.commit_retry", config.DefaultCommitRetry)
 	if err != nil {
 		return bridge.RunOptions{}, err
@@ -211,6 +214,9 @@ func BridgeRunOptions(periodicStatsInterval time.Duration, fromCluster, toCluste
 	}
 	return bridge.RunOptions{
 		PeriodicStatsInterval: periodicStatsInterval,
+		BatchSize:             bridgeCfg.EffectiveBatchSize(),
+		OverridePartition:     bridgeCfg.OverridePartition,
+		OverrideKey:           overrideKeyBytes(bridgeCfg.OverrideKey),
 		Retry: bridge.RetryPolicy{
 			Produce: bridge.RetryConfig{
 				MinBackoff: produceRetry.MinBackoff,
@@ -224,6 +230,13 @@ func BridgeRunOptions(periodicStatsInterval time.Duration, fromCluster, toCluste
 			},
 		},
 	}, nil
+}
+
+func overrideKeyBytes(key *string) []byte {
+	if key == nil {
+		return nil
+	}
+	return []byte(*key)
 }
 
 // recordHeadersFromExtraHeaders builds Kafka headers from bridge extra_headers (sorted by key for stable output).

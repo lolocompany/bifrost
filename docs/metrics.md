@@ -41,7 +41,7 @@ Additional labels may appear when `metrics.extra_labels` is configured; those ar
 | :-- | :-- | :-- | :-- |
 | `bifrost_relay_messages_total` | `Counter` | `bridge`, `from_cluster`, `from_topic`, `to_cluster`, `to_topic` | Count of records relayed successfully (produce + commit completed). |
 | `bifrost_relay_errors_total` | `Counter` | `bridge`, `from_cluster`, `from_topic`, `to_cluster`, `to_topic`, `stage` | Count of relay errors by stage (`poll`, `produce`, `commit`, `route`). |
-| `bifrost_relay_produce_duration_seconds` | `Histogram` | `bridge`, `from_cluster`, `from_topic`, `to_cluster`, `to_topic` | Histogram of to-side produce time per relayed record. |
+| `bifrost_relay_produce_duration_seconds` | `Histogram` | `bridge`, `from_cluster`, `from_topic`, `to_cluster`, `to_topic` | Histogram of to-side produce time per synchronous relay produce call (one record when `batch_size=1`, otherwise one source-partition batch). |
 
 ## kafka
 
