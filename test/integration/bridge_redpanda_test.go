@@ -31,5 +31,11 @@ func TestBridgeRelay_Redpanda(t *testing.T) {
 		t.Fatalf("KafkaSeedBroker: %v", err)
 	}
 
-	runBridgeRelayTest(t, []string{seed})
+	brokers := []string{seed}
+	t.Run("single relay loop", func(t *testing.T) {
+		runBridgeRelayTest(t, brokers)
+	})
+	t.Run("bifrost process scenarios", func(t *testing.T) {
+		runRelayScenarios(t, brokers)
+	})
 }

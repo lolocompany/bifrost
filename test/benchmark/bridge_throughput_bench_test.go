@@ -7,10 +7,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lolocompany/bifrost/pkg/bifrost"
 	"github.com/lolocompany/bifrost/pkg/bridge"
 	bifrostconfig "github.com/lolocompany/bifrost/pkg/config"
 	"github.com/lolocompany/bifrost/pkg/kafka"
 	"github.com/lolocompany/bifrost/pkg/metrics"
+	"github.com/twmb/franz-go/pkg/kadm"
+	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
@@ -137,6 +140,21 @@ func BenchmarkBridgeRelayBurst64KiB(b *testing.B) {
 	benchmarkBridgeRelayWithBurst(b, 64*1024, burstSize)
 }
 
+func BenchmarkBifrostRunBatching256B(b *testing.B) {
+	const burstSize = 128
+	benchmarkBifrostRunWithBurst(b, 256, burstSize, 8, 1, 1)
+}
+
+func BenchmarkBifrostRunReplicas256B(b *testing.B) {
+	const burstSize = 128
+	benchmarkBifrostRunWithBurst(b, 256, burstSize, 1, 4, 4)
+}
+
+func BenchmarkBifrostRunBatchingReplicas256B(b *testing.B) {
+	const burstSize = 128
+	benchmarkBifrostRunWithBurst(b, 256, burstSize, 8, 4, 4)
+}
+
 func benchmarkKafkaRoundTrip(b *testing.B, payloadSize int) {
 	brokers := setupBenchRedpanda(b)
 	if len(brokers) == 0 {
@@ -160,7 +178,7 @@ func benchmarkKafkaRoundTrip(b *testing.B, payloadSize int) {
 	if err != nil {
 		b.Fatalf("cluster opts: %v", err)
 	}
-	pump, err := kgo.NewClient(append(full, kgo.AllowAutoTopicCreation())...)
+	pump, err := kgo.NewClient(append(full, kgo.AllowAutoTopicCreation(), kgo.RecordPartitioner(kgo.ManualPartitioner()))...)
 	if err != nil {
 		b.Fatalf("pump client: %v", err)
 	}
@@ -239,7 +257,7 @@ func benchmarkBridgeRelayWithBurst(b *testing.B, payloadSize int, burst int) {
 	if err != nil {
 		b.Fatalf("cluster opts: %v", err)
 	}
-	pump, err := kgo.NewClient(append(full, kgo.AllowAutoTopicCreation())...)
+	pump, err := kgo.NewClient(append(full, kgo.AllowAutoTopicCreation(), kgo.RecordPartitioner(kgo.ManualPartitioner()))...)
 	if err != nil {
 		b.Fatalf("pump client: %v", err)
 	}
@@ -359,6 +377,160 @@ func benchmarkBridgeRelayWithBurst(b *testing.B, payloadSize int, burst int) {
 	cancel()
 	if err := <-errCh; err != nil && !errors.Is(err, context.Canceled) {
 		b.Fatalf("bridge: %v", err)
+	}
+}
+
+func benchmarkBifrostRunWithBurst(b *testing.B, payloadSize int, burst, batchSize, replicas int, fromPartitions int32) {
+	b.Helper()
+	brokers := setupBenchRedpanda(b)
+	if len(brokers) == 0 {
+		b.Fatal("brokers: empty")
+	}
+	if payloadSize <= 0 {
+		b.Fatal("payload size must be positive")
+	}
+	if burst <= 0 {
+		b.Fatal("burst must be positive")
+	}
+	if batchSize <= 0 {
+		b.Fatal("batch size must be positive")
+	}
+	if replicas <= 0 {
+		b.Fatal("replicas must be positive")
+	}
+	if fromPartitions <= 0 {
+		b.Fatal("fromPartitions must be positive")
+	}
+
+	payload := make([]byte, payloadSize)
+	for i := range payload {
+		payload[i] = byte(i % 251)
+	}
+
+	ctx := context.Background()
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	fromTopic := "bifrost.bench.proc.from." + suffix
+	toTopic := "bifrost.bench.proc.to." + suffix
+
+	env := benchCluster(brokers, payloadSize)
+	full, err := kafka.FullClusterOpts(&env)
+	if err != nil {
+		b.Fatalf("cluster opts: %v", err)
+	}
+	pump, err := kgo.NewClient(append(full, kgo.RecordPartitioner(kgo.ManualPartitioner()))...)
+	if err != nil {
+		b.Fatalf("pump client: %v", err)
+	}
+	defer pump.Close()
+
+	mustCreateBenchTopic(b, ctx, pump, fromTopic, fromPartitions)
+	mustCreateBenchTopic(b, ctx, pump, toTopic, fromPartitions)
+
+	metricsOff := false
+	cfg := bifrostconfig.Config{
+		Clusters: map[string]bifrostconfig.Cluster{"bench": env},
+		Bridges: []bifrostconfig.Bridge{{
+			Name:      "bench",
+			Replicas:  replicas,
+			BatchSize: batchSize,
+			From:      bifrostconfig.BridgeTarget{Cluster: "bench", Topic: fromTopic},
+			To:        bifrostconfig.BridgeTarget{Cluster: "bench", Topic: toTopic},
+		}},
+		Metrics: bifrostconfig.Metrics{Enable: &metricsOff},
+		Logging: bifrostconfig.Logging{
+			Level:                 "info",
+			Format:                "json",
+			Stream:                "stdout",
+			PeriodicStatsInterval: "0",
+		},
+	}
+
+	verify, err := newBenchVerifyClient(brokers, toTopic, "bench-bifrost-proc-verify-"+suffix, payloadSize)
+	if err != nil {
+		b.Fatalf("verify client: %v", err)
+	}
+	defer verify.Close()
+
+	runCtx, runCancel := context.WithTimeout(ctx, 30*time.Minute)
+	defer runCancel()
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- bifrost.Run(runCtx, cfg)
+	}()
+
+	for partition := int32(0); partition < fromPartitions; partition++ {
+		seed := append([]byte(nil), payload...)
+		seed = append(seed, byte(partition))
+		if res := pump.ProduceSync(runCtx, &kgo.Record{
+			Topic:     fromTopic,
+			Partition: partition,
+			Value:     seed,
+		}); res.FirstErr() != nil {
+			b.Fatalf("seed from-topic partition %d: %v", partition, res.FirstErr())
+		}
+	}
+
+	prewarmCtx, prewarmCancel := context.WithTimeout(ctx, benchDrainJoinTimeout)
+	defer prewarmCancel()
+	benchProgressf("bifrost process benchmark: warmup drain %d records from %q (≤%s)...\n", fromPartitions, toTopic, benchDrainJoinTimeout)
+	if err := drainTopicRecords(prewarmCtx, verify, toTopic, int(fromPartitions), errCh); err != nil {
+		b.Fatalf("warmup drain: %v", err)
+	}
+
+	b.ReportAllocs()
+	var produced uint64
+	for b.Loop() {
+		for j := 0; j < burst; j++ {
+			partition := int32(produced % uint64(fromPartitions))
+			produced++
+			if res := pump.ProduceSync(runCtx, &kgo.Record{
+				Topic:     fromTopic,
+				Partition: partition,
+				Value:     payload,
+			}); res.FirstErr() != nil {
+				b.Fatalf("produce: %v", res.FirstErr())
+			}
+		}
+	}
+
+	select {
+	case err := <-errCh:
+		if err != nil && !errors.Is(err, context.Canceled) {
+			b.Fatalf("bifrost.Run: %v", err)
+		}
+	default:
+	}
+	if b.N*burst > 0 {
+		smokeCtx, smokeCancel := context.WithTimeout(ctx, benchSmokeDrainTimeout)
+		defer smokeCancel()
+		benchProgressf("bifrost process benchmark: smoke drain 1 relay from %q (≤%s)...\n", toTopic, benchSmokeDrainTimeout)
+		if err := drainTopicRecords(smokeCtx, verify, toTopic, 1, errCh); err != nil {
+			b.Fatalf("smoke drain: %v", err)
+		}
+	}
+
+	b.SetBytes(int64(payloadSize * burst))
+	if burst > 1 {
+		b.ReportMetric(float64(burst), "msgs/iter")
+	}
+
+	runCancel()
+	if err := <-errCh; err != nil && !errors.Is(err, context.Canceled) {
+		b.Fatalf("bifrost.Run: %v", err)
+	}
+}
+
+func mustCreateBenchTopic(b *testing.B, ctx context.Context, cl *kgo.Client, topic string, partitions int32) {
+	b.Helper()
+	adm := kadm.NewClient(cl)
+	resp, err := adm.CreateTopics(ctx, partitions, 1, nil, topic)
+	if err != nil {
+		b.Fatalf("create topic %q: %v", topic, err)
+	}
+	for _, result := range resp.Sorted() {
+		if result.Err != nil && !errors.Is(result.Err, kerr.TopicAlreadyExists) {
+			b.Fatalf("create topic %q: %v", topic, result.Err)
+		}
 	}
 }
 

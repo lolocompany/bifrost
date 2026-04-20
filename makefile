@@ -1,5 +1,5 @@
 # All targets are phony (no file named "build", "test", etc. should shadow these).
-.PHONY: bench bench-all bench-full bench-profile-block bench-profile-cpu bench-profile-mem bench-profile-trace \
+.PHONY: bench bench-full bench-profile-block bench-profile-cpu bench-profile-mem bench-profile-trace \
 	build build-release build-docker format help lint test test-coverage test-integration
 
 # Isolated Redpanda per benchmark: wall time grows with container churn; allow a generous cap.
@@ -17,8 +17,7 @@ help:
 	@echo "Usage: make <target>"
 	@echo "Targets:"
 	@printf '  %-30s %s\n' 'bench' 'Benchmarks (Docker; default subset BENCH_PATTERN; BENCH_TIME=$(BENCH_TIME); timeout $(BENCH_TIMEOUT))'
-	@printf '  %-30s %s\n' 'bench-all' 'All benchmarks (-bench=.; same BENCH_TIME and BENCH_TIMEOUT)'
-	@printf '  %-30s %s\n' 'bench-full' 'All benchmarks, -count=5 (slow); summarize output with: go tool benchstat <file>'
+	@printf '  %-30s %s\n' 'bench-full' 'All benchmarks, -count=6 (slow); bench.txt=stdout only (for benchstat); bench.err=logs'
 	@printf '  %-30s %s\n' 'bench-profile-block' 'Block profile + pprof -http (override BENCH=...)'
 	@printf '  %-30s %s\n' 'bench-profile-cpu' 'CPU profile + pprof -http (override BENCH=...)'
 	@printf '  %-30s %s\n' 'bench-profile-mem' 'Heap profile + pprof -http (override BENCH=...)'
@@ -67,13 +66,15 @@ test-coverage:
 	go tool cover -html=coverage.out
 
 # GOMAXPROCS=$(BENCH_GOMAXPROCS) and -p 1: one package worker; default one OS thread for stable CPU.
+# Benchmark lines go to stdout; slog and other diagnostics go to stderr. Keep them separate so
+# go tool benchstat can parse bench.txt (merged stderr breaks benchmark line continuations).
 bench:
-	BIFROST_BENCHMARK=1 GOMAXPROCS=$(BENCH_GOMAXPROCS) go test -p 1 -bench='$(BENCH_PATTERN)' -benchmem -benchtime=$(BENCH_TIME) -timeout=$(BENCH_TIMEOUT) ./test/benchmark/... 2>&1 | tee bench.txt
+	BIFROST_BENCHMARK=1 GOMAXPROCS=$(BENCH_GOMAXPROCS) go test -p 1 -bench='$(BENCH_PATTERN)' -benchmem -benchtime=$(BENCH_TIME) -timeout=$(BENCH_TIMEOUT) ./test/benchmark/... 2>bench.err | tee bench.txt
 	go tool benchstat bench.txt
 
 # Run all benchmarks 6 times.
 bench-full:
-	BIFROST_BENCHMARK=1 GOMAXPROCS=$(BENCH_GOMAXPROCS) go test -count=6 -p 1 -bench=. -benchmem -benchtime=$(BENCH_TIME) -timeout=$(BENCH_TIMEOUT) ./test/benchmark/... 2>&1 | tee bench.txt
+	BIFROST_BENCHMARK=1 GOMAXPROCS=$(BENCH_GOMAXPROCS) go test -count=6 -p 1 -bench=. -benchmem -benchtime=$(BENCH_TIME) -timeout=$(BENCH_TIMEOUT) ./test/benchmark/... 2>bench.err | tee bench.txt
 	go tool benchstat bench.txt
 
 bench-profile-cpu:

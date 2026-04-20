@@ -4,7 +4,7 @@
 //
 //	BIFROST_BENCHMARK=1 go test -bench=. -benchmem ./test/benchmark/...
 //
-// or `make bench` (default: small benchmark subset; `make bench-all` for the full suite).
+// or `make bench` (default: small benchmark subset; `make bench-full` for the full suite).
 //
 // Each benchmark that calls setupBenchRedpanda gets its own Redpanda container, started before
 // the benchmark body and terminated in b.Cleanup when the benchmark returns—no shared broker

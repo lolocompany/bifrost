@@ -27,5 +27,10 @@ func TestBridgeRelay_KafkaKRaft(t *testing.T) {
 		t.Fatalf("Brokers: %v", err)
 	}
 
-	runBridgeRelayTest(t, brokers)
+	t.Run("single relay loop", func(t *testing.T) {
+		runBridgeRelayTest(t, brokers)
+	})
+	t.Run("bifrost process scenarios", func(t *testing.T) {
+		runRelayScenarios(t, brokers)
+	})
 }
