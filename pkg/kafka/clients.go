@@ -89,6 +89,7 @@ func NewProducer(env *config.Cluster, hooks []kgo.Hook, recordTCPDialSeconds fun
 		return nil, err
 	}
 	opts := append(base, cust...)
+	opts = append(opts, kgo.RecordPartitioner(kgo.ManualPartitioner()))
 	if len(hooks) > 0 {
 		opts = append(opts, kgo.WithHooks(hooks...))
 	}
