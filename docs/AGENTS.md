@@ -24,15 +24,13 @@ Do **not** conflate:
 
 ## Layout
 
-| Path                            | Role                                                                                                                                                                                          |
-| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `cmd/bifrost`                   | CLI: flags, load YAML, logging setup, signal context, **`bifrost.Run(ctx, cfg)`**. **`cmd/bifrost/version`** holds release/build metadata and `-X` ldflags targets.                                                                                           |
-| `pkg/bifrost`                   | Process orchestration: **`Run`**, Kafka client construction, topic ensure, `errgroup` over configured bridges.                                                                                |
-| `pkg/bridge`                    | Core relay loop and interfaces (`MetricsReporter`, `RunOptions`, etc.).                                                                                                                       |
-| `pkg/config`                    | Parsed config, validation, defaults.                                                                                                                                                          |
-| `pkg/kafka`                     | Franz-go helpers (producers, consumers, ping, ensure topics).                                                                                                                                 |
-| `pkg/metrics`                   | Prometheus collectors, **`NewFromConfig`** (registry + `/metrics` HTTP server when enabled), `Handler`.                                                                                        |
-| `test/unit`, `test/integration` | Tests; integration tests are Docker-backed when enabled. **Unit tests for `pkg/*` live under `test/unit/<package>/`** (e.g. `test/unit/bifrost` for `pkg/bifrost`), not beside `pkg` sources. |
+- `cmd/bifrost`: CLI flags, YAML loading, logging setup, signal context, **`bifrost.Run(ctx, cfg)`** call. **`cmd/bifrost/version`** holds release/build metadata and `-X` ldflags targets.
+- `pkg/bifrost`: Process orchestration: **`Run`**, Kafka client construction, topic ensure, `errgroup` over configured bridges.
+- `pkg/bridge`: Core relay loop and interfaces (`MetricsReporter`, `RunOptions`, etc.).
+- `pkg/config`: Parsed config, validation, and the single source of truth for default values (applied via config struct methods).
+- `pkg/kafka`: Franz-go helpers (producers, consumers, ping, ensure topics).
+- `pkg/metrics`: Prometheus collectors, **`NewFromConfig`** (registry + `/metrics` HTTP server when enabled), `Handler`.
+- `test/unit`, `test/integration`: Tests; integration tests are Docker-backed when enabled. **Unit tests for `pkg/*` live under `test/unit/<package>/`** (e.g. `test/unit/bifrost` for `pkg/bifrost`), not beside `pkg` sources.
 
 ## Naming and abstractions
 

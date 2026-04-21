@@ -212,9 +212,20 @@ func BridgeRunOptions(periodicStatsInterval time.Duration, bridgeCfg config.Brid
 	if err != nil {
 		return bridge.RunOptions{}, err
 	}
+	commitInterval := 0 * time.Millisecond
+	if s := strings.TrimSpace(bridgeCfg.CommitInterval); s != "" {
+		d, err := time.ParseDuration(s)
+		if err != nil {
+			return bridge.RunOptions{}, fmt.Errorf("bridge.commit_interval: %w", err)
+		}
+		commitInterval = d
+	}
 	return bridge.RunOptions{
 		PeriodicStatsInterval: periodicStatsInterval,
 		BatchSize:             bridgeCfg.EffectiveBatchSize(),
+		MaxInFlightBatches:    bridgeCfg.MaxInFlightBatches,
+		CommitInterval:        commitInterval,
+		CommitMaxRecords:      bridgeCfg.CommitMaxRecords,
 		OverridePartition:     bridgeCfg.OverridePartition,
 		OverrideKey:           overrideKeyBytes(bridgeCfg.OverrideKey),
 		Retry: bridge.RetryPolicy{
@@ -264,17 +275,16 @@ func logKafkaClientDebug(clusterName, clientRole string, env *config.Cluster) {
 	if env == nil {
 		return
 	}
+	if !slog.Default().Enabled(context.Background(), slog.LevelDebug) {
+		return
+	}
 	attrs := []any{
 		"cluster", clusterName,
 		"client_role", clientRole,
 		"seed_broker_count", len(env.Brokers),
 		"tls_enabled", env.TLS.Enabled,
 	}
-	mech := strings.ToLower(strings.TrimSpace(env.SASL.Mechanism))
-	if mech == "" {
-		mech = "none"
-	}
-	attrs = append(attrs, "sasl_mechanism", mech)
+	attrs = append(attrs, "sasl_mechanism", env.SASL.EffectiveMechanism())
 	if id := strings.TrimSpace(env.Client.ClientID); id != "" {
 		attrs = append(attrs, "client_id", id)
 	}
@@ -287,11 +297,7 @@ func logKafkaClientDebug(clusterName, clientRole string, env *config.Cluster) {
 
 	switch clientRole {
 	case "consumer":
-		il := strings.ToLower(strings.TrimSpace(env.Consumer.IsolationLevel))
-		if il == "" {
-			il = "read_uncommitted"
-		}
-		attrs = append(attrs, "consumer_isolation_level", il)
+		attrs = append(attrs, "consumer_isolation_level", env.Consumer.EffectiveIsolationLevel())
 		if env.Consumer.FetchMaxBytes != nil {
 			attrs = append(attrs, "consumer_fetch_max_bytes", *env.Consumer.FetchMaxBytes)
 		}
@@ -302,11 +308,7 @@ func logKafkaClientDebug(clusterName, clientRole string, env *config.Cluster) {
 			attrs = append(attrs, "consumer_fetch_max_wait", w)
 		}
 	case "producer":
-		acks := strings.ToLower(strings.TrimSpace(env.Producer.RequiredAcks))
-		if acks == "" {
-			acks = "all"
-		}
-		attrs = append(attrs, "producer_required_acks", acks)
+		attrs = append(attrs, "producer_required_acks", env.Producer.EffectiveRequiredAcks())
 		if c := strings.TrimSpace(env.Producer.BatchCompression); c != "" {
 			attrs = append(attrs, "producer_batch_compression", c)
 		}

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -24,6 +25,13 @@ type Bridge struct {
 	// BatchSize controls how many source records from the same topic-partition are produced and
 	// committed together. Omit or set 0 to use 1 (effectively disabling batching).
 	BatchSize int `yaml:"batch_size"`
+	// MaxInFlightBatches caps concurrently produced batches per bridge replica. Omit or set 0 to
+	// use a conservative elastic default.
+	MaxInFlightBatches int `yaml:"max_in_flight_batches"`
+	// CommitInterval controls how often acknowledged offsets are flushed to Kafka.
+	CommitInterval string `yaml:"commit_interval"`
+	// CommitMaxRecords flushes acknowledged offsets when this many records are pending.
+	CommitMaxRecords int `yaml:"commit_max_records"`
 	// OverridePartition forces all produced records for this bridge onto one destination partition.
 	OverridePartition *int32 `yaml:"override_partition,omitempty"`
 	// OverrideKey replaces the Kafka key on every produced record for this bridge.
@@ -62,6 +70,21 @@ func (b *Bridge) validate(clusters map[string]Cluster) error {
 	}
 	if b.BatchSize < 0 {
 		return errors.New("batch_size must be 0 (disabled) or at least 1")
+	}
+	if b.MaxInFlightBatches < 1 || b.MaxInFlightBatches > 256 {
+		return errors.New("max_in_flight_batches must be between 1 and 256")
+	}
+	if b.CommitMaxRecords < 1 || b.CommitMaxRecords > 100000 {
+		return errors.New("commit_max_records must be between 1 and 100000")
+	}
+	if strings.TrimSpace(b.CommitInterval) != "" {
+		d, err := time.ParseDuration(strings.TrimSpace(b.CommitInterval))
+		if err != nil {
+			return fmt.Errorf("commit_interval: %w", err)
+		}
+		if d != 0 && (d < 10*time.Millisecond || d > 5*time.Second) {
+			return errors.New("commit_interval must be 0 or between 10ms and 5s")
+		}
 	}
 	if b.OverridePartition != nil && *b.OverridePartition < 0 {
 		return errors.New("override_partition must be at least 0")
@@ -112,9 +135,27 @@ func (b *Bridge) EffectiveConsumerGroup() string {
 // EffectiveBatchSize returns the configured batch size, defaulting to 1 when omitted or zero.
 func (b *Bridge) EffectiveBatchSize() int {
 	if b == nil || b.BatchSize == 0 {
-		return 1
+		return DefaultBridgeBatchSize
 	}
 	return b.BatchSize
+}
+
+func (b *Bridge) ApplyDefaults() {
+	if b == nil {
+		return
+	}
+	if b.BatchSize == 0 {
+		b.BatchSize = DefaultBridgeBatchSize
+	}
+	if b.MaxInFlightBatches == 0 {
+		b.MaxInFlightBatches = DefaultMaxInFlightBatches
+	}
+	if strings.TrimSpace(b.CommitInterval) == "" {
+		b.CommitInterval = DefaultCommitInterval.String()
+	}
+	if b.CommitMaxRecords == 0 {
+		b.CommitMaxRecords = DefaultCommitMaxRecords
+	}
 }
 
 // EffectiveOverridePartition returns the configured destination partition override, if any.

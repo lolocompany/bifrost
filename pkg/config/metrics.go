@@ -29,6 +29,15 @@ type MetricGroups struct {
 	TCP     *bool `yaml:"tcp"`     // TCP broker socket metrics from franz-go hooks (cross-platform)
 }
 
+func (m *Metrics) ApplyDefaults() {
+	if !m.MetricsEnabled() {
+		return
+	}
+	if strings.TrimSpace(m.ListenAddr) == "" {
+		m.ListenAddr = ":9090"
+	}
+}
+
 func (m *Metrics) validate() error {
 	if err := validateMetricsExtraLabels(m.ExtraLabels); err != nil {
 		return fmt.Errorf("extra_labels: %w", err)

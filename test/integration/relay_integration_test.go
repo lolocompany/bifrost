@@ -99,7 +99,12 @@ func runBridgeRelayTest(t *testing.T, brokers []string) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- bridge.Run(bridgeCtx, id, consumer, producer, mr.BridgeMetrics, bridge.RunOptions{})
+		errCh <- bridge.Run(bridgeCtx, id, consumer, producer, mr.BridgeMetrics, bridge.RunOptions{
+			BatchSize:          bifrostconfig.DefaultBridgeBatchSize,
+			MaxInFlightBatches: bifrostconfig.DefaultMaxInFlightBatches,
+			CommitInterval:     bifrostconfig.DefaultCommitInterval,
+			CommitMaxRecords:   bifrostconfig.DefaultCommitMaxRecords,
+		})
 	}()
 
 	verify, err := kgo.NewClient(

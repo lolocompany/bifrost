@@ -1,6 +1,20 @@
 package config
 
-import "time"
+import (
+	"strings"
+	"time"
+)
+
+const (
+	DefaultClientDialTimeout    = 10 * time.Second
+	DefaultPingTimeout          = 30 * time.Second
+	DefaultBridgeBatchSize      = 1
+	DefaultMaxInFlightBatches   = 64
+	DefaultCommitInterval       = 1 * time.Second
+	DefaultCommitMaxRecords     = 1024
+	DefaultProducerRequiredAcks = "leader"
+	DefaultDisableIdempotentWrite = true
+)
 
 // Cluster describes a Kafka cluster connection: seed brokers, security, and optional
 // franz-go tuning for shared clients, consumers, and producers.
@@ -59,7 +73,7 @@ type ConsumerSettings struct {
 
 // ProducerSettings configures the producer client used on the to side of a bridge.
 type ProducerSettings struct {
-	// RequiredAcks: all (default), leader, none.
+	// RequiredAcks: leader (default), all, none.
 	RequiredAcks string `yaml:"required_acks"`
 
 	// BatchMaxBytes is the max record batch size before compression (Kafka max.message.bytes);
@@ -115,4 +129,72 @@ type SASL struct {
 	Mechanism string `yaml:"mechanism"` // none, plain, scram-sha-256, scram-sha-512
 	Username  string `yaml:"username"`
 	Password  string `yaml:"password"`
+}
+
+func (c *Cluster) ApplyDefaults() {
+	c.Client.ApplyDefaults()
+	c.Producer.ApplyDefaults()
+}
+
+func (c *ClientSettings) ApplyDefaults() {
+	if c == nil {
+		return
+	}
+	if c.DialTimeout == "" {
+		c.DialTimeout = DefaultClientDialTimeout.String()
+	}
+}
+
+func (c *ClientSettings) DialTimeoutDuration() (time.Duration, error) {
+	if c == nil {
+		return DefaultClientDialTimeout, nil
+	}
+	if c.DialTimeout == "" {
+		return DefaultClientDialTimeout, nil
+	}
+	return time.ParseDuration(c.DialTimeout)
+}
+
+func (c *ClientSettings) PingTimeoutDuration() (time.Duration, error) {
+	if c == nil || c.DialTimeout == "" {
+		return DefaultPingTimeout, nil
+	}
+	return time.ParseDuration(c.DialTimeout)
+}
+
+func (s SASL) EffectiveMechanism() string {
+	mech := strings.ToLower(strings.TrimSpace(s.Mechanism))
+	if mech == "" {
+		return "none"
+	}
+	return mech
+}
+
+func (c ConsumerSettings) EffectiveIsolationLevel() string {
+	level := strings.ToLower(strings.TrimSpace(c.IsolationLevel))
+	if level == "" {
+		return "read_uncommitted"
+	}
+	return level
+}
+
+func (p ProducerSettings) EffectiveRequiredAcks() string {
+	acks := strings.ToLower(strings.TrimSpace(p.RequiredAcks))
+	if acks == "" {
+		return DefaultProducerRequiredAcks
+	}
+	return acks
+}
+
+func (p *ProducerSettings) ApplyDefaults() {
+	if p == nil {
+		return
+	}
+	if strings.TrimSpace(p.RequiredAcks) == "" {
+		p.RequiredAcks = DefaultProducerRequiredAcks
+	}
+	if p.DisableIdempotentWrite == nil {
+		v := DefaultDisableIdempotentWrite
+		p.DisableIdempotentWrite = &v
+	}
 }

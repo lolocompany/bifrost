@@ -17,6 +17,11 @@ import (
 // Run starts metrics (if enabled), producer clients, optional topic creation, and bridge goroutines.
 // Does not configure logging. Use pkg/logging.Setup before calling Run to set up the default slog logger.
 func Run(ctx context.Context, cfg config.Config) error {
+	cfg.ApplyDefaults()
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("config: %w", err)
+	}
+
 	periodicStatsInterval, err := cfg.Logging.ParsePeriodicStatsInterval()
 	if err != nil {
 		return fmt.Errorf("logging: %w", err)

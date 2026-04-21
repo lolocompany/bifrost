@@ -1381,3 +1381,103 @@ logging:
 		t.Fatal("expected error for empty extra_headers key")
 	}
 }
+
+func TestParse_bridgeThroughputKnobs(t *testing.T) {
+	const yamlDoc = `
+clusters:
+  east:
+    brokers: ["127.0.0.1:9092"]
+  west:
+    brokers: ["127.0.0.1:9093"]
+bridges:
+  - name: east-to-west
+    from: { cluster: east, topic: in }
+    to: { cluster: west, topic: out }
+    max_in_flight_batches: 16
+    commit_interval: "300ms"
+    commit_max_records: 2000
+metrics:
+  enabled: false
+logging:
+  level: info
+  stream: stdout
+`
+	cfg, err := config.Parse([]byte(yamlDoc))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := cfg.Bridges[0].MaxInFlightBatches; got != 16 {
+		t.Fatalf("max_in_flight_batches: got %d", got)
+	}
+	if got := cfg.Bridges[0].CommitInterval; got != "300ms" {
+		t.Fatalf("commit_interval: got %q", got)
+	}
+	if got := cfg.Bridges[0].CommitMaxRecords; got != 2000 {
+		t.Fatalf("commit_max_records: got %d", got)
+	}
+}
+
+func TestParse_bridgeThroughputKnobsRejectsInvalid(t *testing.T) {
+	const yamlDoc = `
+clusters:
+  east:
+    brokers: ["127.0.0.1:9092"]
+bridges:
+  - name: east-loop
+    from: { cluster: east, topic: in }
+    to: { cluster: east, topic: out }
+    max_in_flight_batches: 300
+metrics:
+  enabled: false
+logging:
+  level: info
+  stream: stdout
+`
+	if _, err := config.Parse([]byte(yamlDoc)); err == nil {
+		t.Fatal("expected error for max_in_flight_batches out of range")
+	}
+}
+
+func TestParse_appliesCentralizedDefaults(t *testing.T) {
+	const yamlDoc = `
+clusters:
+  east:
+    brokers: ["127.0.0.1:9092"]
+bridges:
+  - name: east-loop
+    from: { cluster: east, topic: in }
+    to: { cluster: east, topic: out }
+metrics:
+  enabled: true
+logging: {}
+`
+	cfg, err := config.Parse([]byte(yamlDoc))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if cfg.Logging.Level != "info" || cfg.Logging.Format != "json" || cfg.Logging.Stream != "stdout" {
+		t.Fatalf("logging defaults not applied: %#v", cfg.Logging)
+	}
+	if cfg.Logging.PeriodicStatsInterval != "5m" {
+		t.Fatalf("periodic_stats_interval default: got %q", cfg.Logging.PeriodicStatsInterval)
+	}
+	if cfg.Metrics.ListenAddr != ":9090" {
+		t.Fatalf("metrics listen default: got %q", cfg.Metrics.ListenAddr)
+	}
+	br := cfg.Bridges[0]
+	if br.BatchSize != config.DefaultBridgeBatchSize {
+		t.Fatalf("bridge batch_size default: got %d", br.BatchSize)
+	}
+	if br.MaxInFlightBatches != config.DefaultMaxInFlightBatches {
+		t.Fatalf("bridge max_in_flight_batches default: got %d", br.MaxInFlightBatches)
+	}
+	if br.CommitInterval != config.DefaultCommitInterval.String() {
+		t.Fatalf("bridge commit_interval default: got %q", br.CommitInterval)
+	}
+	if br.CommitMaxRecords != config.DefaultCommitMaxRecords {
+		t.Fatalf("bridge commit_max_records default: got %d", br.CommitMaxRecords)
+	}
+	if cfg.Clusters["east"].Client.DialTimeout != config.DefaultClientDialTimeout.String() {
+		t.Fatalf("client dial_timeout default: got %q", cfg.Clusters["east"].Client.DialTimeout)
+	}
+}

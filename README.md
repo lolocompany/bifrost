@@ -83,6 +83,12 @@ bridges:
       topic: outgoing
     # Optional bridge-local relay batching. Defaults to 1 (disabled).
     # batch_size: 1
+    # Optional concurrent produce depth per relay replica. Defaults to 64.
+    # max_in_flight_batches: 64
+    # Optional interval-based commit coalescing. Defaults to 1s.
+    # commit_interval: "1s"
+    # Optional size-based commit coalescing. Defaults to 1024.
+    # commit_max_records: 1024
     # Optional fixed destination partition override. When omitted, bifrost preserves
     # the source partition number on each record. If set, the destination topic
     # must contain that partition index.
@@ -90,6 +96,24 @@ bridges:
     # Optional fixed key override applied to every produced record for this bridge.
     # override_key: "static-key"
 ```
+
+### Throughput-friendly defaults
+
+Bifrost defaults are intentionally elastic: low overhead at idle, but ready to scale under load.
+
+- Bridge defaults:
+  - `max_in_flight_batches: 64`
+  - `commit_interval: 1s`
+  - `commit_max_records: 1024`
+- Producer defaults:
+  - `producer.required_acks: leader`
+  - `producer.disable_idempotent_write: true`
+- For stronger durability guarantees, prefer `producer.required_acks: all` and keep idempotence enabled (`disable_idempotent_write: false`).
+- For higher throughput tuning, prefer:
+  - `producer.linger: "5ms"`
+  - `producer.batch_compression: "snappy"` (or `zstd` for better compression ratio)
+  - `producer.batch_max_bytes` sized for your largest expected records
+  - `consumer.fetch_max_bytes` and `consumer.fetch_max_partition_bytes` sized for your record profile.
 
 ### Relay failure handling
 
@@ -132,6 +156,7 @@ If you omit these blocks, bifrost uses the same defaults shown above. Commit ret
 | `make format`           | Run `go fmt` and `gofmt`                                                                       |
 
 Contributor and agent-oriented notes on layout and naming: `[docs/AGENTS.md](./docs/AGENTS.md)`.
+Configuration profiles and tradeoffs: `[docs/config-profiles.md](./docs/config-profiles.md)`.
 
 ---
 

@@ -19,9 +19,6 @@ import (
 	"github.com/lolocompany/bifrost/pkg/config"
 )
 
-// defaultDialTimeout matches franz-go's default when client.dial_timeout is omitted.
-const defaultDialTimeout = 10 * time.Second
-
 // ClientOpts returns franz-go options shared by producer and consumer clients for a cluster
 // (brokers, TLS, SASL, and cluster.client).
 //
@@ -41,11 +38,9 @@ func ClientOpts(env *config.Cluster, recordTCPDialSeconds func(float64)) ([]kgo.
 		return nil, err
 	}
 
-	dialTimeout := defaultDialTimeout
-	if d, ok, err := parseDurationField(env.Client.DialTimeout); err != nil {
+	dialTimeout, err := env.Client.DialTimeoutDuration()
+	if err != nil {
 		return nil, fmt.Errorf("client.dial_timeout: %w", err)
-	} else if ok {
-		dialTimeout = d
 	}
 
 	if recordTCPDialSeconds != nil {

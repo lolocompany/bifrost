@@ -5,16 +5,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
-	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 
 	"github.com/lolocompany/bifrost/pkg/config"
 )
-
-// defaultPingTimeout bounds how long [PingBroker] waits when cluster.client.dial_timeout is unset.
-const defaultPingTimeout = 30 * time.Second
 
 // PingBroker checks that at least one seed or discovered broker responds to a metadata request.
 // Use [WithPingTimeout] (or your own deadline) so startup fails instead of hanging in fetch loops
@@ -27,21 +22,18 @@ func PingBroker(ctx context.Context, cl *kgo.Client) error {
 }
 
 // WithPingTimeout returns a child context suitable for [PingBroker]. It uses cluster.client.dial_timeout
-// when set and valid; otherwise it uses defaultPingTimeout.
+// when set and valid; otherwise it uses the config default ping timeout.
 func WithPingTimeout(parent context.Context, env *config.Cluster) (context.Context, context.CancelFunc, error) {
 	if parent == nil {
 		return nil, nil, errors.New("parent context is nil")
 	}
-	d := defaultPingTimeout
+	d := config.DefaultPingTimeout
 	if env != nil {
-		s := strings.TrimSpace(env.Client.DialTimeout)
-		if s != "" {
-			parsed, err := time.ParseDuration(s)
-			if err != nil {
-				return nil, nil, fmt.Errorf("client.dial_timeout: %w", err)
-			}
-			d = parsed
+		parsed, err := env.Client.PingTimeoutDuration()
+		if err != nil {
+			return nil, nil, fmt.Errorf("client.dial_timeout: %w", err)
 		}
+		d = parsed
 	}
 	pingCtx, cancel := context.WithTimeout(parent, d)
 	return pingCtx, cancel, nil
@@ -63,6 +55,7 @@ func NewConsumerForBridge(env *config.Cluster, group string, topic string, hooks
 	opts = append(opts,
 		kgo.ConsumerGroup(group),
 		kgo.ConsumeTopics(topic),
+		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
 		kgo.DisableAutoCommit(),
 	)
 	if len(hooks) > 0 {

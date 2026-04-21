@@ -73,7 +73,7 @@ clusters:
     #   batch_max_bytes: 1048576
     #   # Optional compression: snappy, zstd, lz4, gzip, none.
     #   batch_compression: "snappy"
-    #   # Optional producer linger duration.
+    #   # Optional producer linger duration. Good high-throughput default is 5ms.
     #   linger: "5ms"
     #   # Optional produce request timeout.
     #   produce_request_timeout: "30s"
@@ -112,6 +112,15 @@ bridges:
     # Optional: maximum records to relay at once from one source topic-partition. Omit or set 1
     # to disable batching. Produce and commit still happen in order per source partition.
     # batch_size: 1
+    # Optional: max concurrently produced batches per replica.
+    # Omit/0 uses elastic default (8).
+    # max_in_flight_batches: 8
+    # Optional: commit acknowledged offsets at this interval (Go duration).
+    # Omit/0 uses elastic default (200ms).
+    # commit_interval: "200ms"
+    # Optional: commit acknowledged offsets when this many records are pending.
+    # Omit/0 uses elastic default (1000).
+    # commit_max_records: 1000
     # Optional: force all produced records for this bridge onto one destination partition. When
     # omitted, bifrost preserves the source partition number on each record. If set, the
     # destination topic must contain that partition index.

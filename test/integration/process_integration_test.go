@@ -207,6 +207,7 @@ func runRelayScenario(t *testing.T, brokers []string, scenario relayScenario) {
 	verify, err := kgo.NewClient(
 		kgo.SeedBrokers(brokers...),
 		kgo.ConsumeTopics(toTopic),
+		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
 		kgo.FetchIsolationLevel(kgo.ReadUncommitted()),
 		kgo.FetchMaxWait(2*time.Second),
 	)

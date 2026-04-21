@@ -19,6 +19,21 @@ type Logging struct {
 	PeriodicStatsInterval string `yaml:"periodic_stats_interval"`
 }
 
+func (l *Logging) ApplyDefaults() {
+	if strings.TrimSpace(l.Level) == "" {
+		l.Level = "info"
+	}
+	if strings.TrimSpace(l.Format) == "" {
+		l.Format = "json"
+	}
+	if strings.TrimSpace(l.Stream) == "" {
+		l.Stream = "stdout"
+	}
+	if strings.TrimSpace(l.PeriodicStatsInterval) == "" {
+		l.PeriodicStatsInterval = "5m"
+	}
+}
+
 func (l *Logging) validate() error {
 	level := strings.ToLower(strings.TrimSpace(l.Level))
 	switch level {
@@ -69,12 +84,9 @@ func (l *Logging) StreamKey() string {
 }
 
 // ParsePeriodicStatsInterval returns the interval for periodic per-bridge relay stats logs at info
-// level. A duration of 0 means disabled. After applyDefaults, an empty field is treated as "5m".
+// level. A duration of 0 means disabled.
 func (l *Logging) ParsePeriodicStatsInterval() (time.Duration, error) {
 	s := strings.TrimSpace(l.PeriodicStatsInterval)
-	if s == "" {
-		s = "5m"
-	}
 	d, err := time.ParseDuration(s)
 	if err != nil {
 		return 0, fmt.Errorf("parse duration: %w", err)

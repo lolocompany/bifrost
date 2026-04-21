@@ -155,6 +155,37 @@ func BenchmarkBifrostRunBatchingReplicas256B(b *testing.B) {
 	benchmarkBifrostRunWithBurst(b, 256, burstSize, 8, 4, 4)
 }
 
+func BenchmarkBifrostRunAcksLeader256B(b *testing.B) {
+	const burstSize = 128
+	tuned := benchCluster(append([]string(nil), setupBenchRedpanda(b)...), 256)
+	tuned.Producer.RequiredAcks = "leader"
+	benchmarkBifrostRunWithBurstAndCluster(b, tuned, 256, burstSize, 8, 4, 4)
+}
+
+func BenchmarkBifrostRunBatchSweep256B(b *testing.B) {
+	for _, batchSize := range []int{100, 500, 1000} {
+		b.Run(fmt.Sprintf("batch_%d", batchSize), func(b *testing.B) {
+			benchmarkBifrostRunWithBurst(b, 256, 128, batchSize, 4, 4)
+		})
+	}
+}
+
+func BenchmarkBifrostRunReplicaSweep256B(b *testing.B) {
+	for _, replicas := range []int{1, 2, 4, 8} {
+		b.Run(fmt.Sprintf("replicas_%d", replicas), func(b *testing.B) {
+			benchmarkBifrostRunWithBurst(b, 256, 128, 8, replicas, 8)
+		})
+	}
+}
+
+func BenchmarkBifrostRunPartitionSweep256B(b *testing.B) {
+	for _, partitions := range []int32{1, 4, 8, 16} {
+		b.Run(fmt.Sprintf("partitions_%d", partitions), func(b *testing.B) {
+			benchmarkBifrostRunWithBurst(b, 256, 128, 8, 4, partitions)
+		})
+	}
+}
+
 func benchmarkKafkaRoundTrip(b *testing.B, payloadSize int) {
 	brokers := setupBenchRedpanda(b)
 	if len(brokers) == 0 {
@@ -323,7 +354,12 @@ func benchmarkBridgeRelayWithBurst(b *testing.B, payloadSize int, burst int) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- bridge.Run(bridgeCtx, id, consumer, producer, metricsRegistry.BridgeMetrics, bridge.RunOptions{})
+		errCh <- bridge.Run(bridgeCtx, id, consumer, producer, metricsRegistry.BridgeMetrics, bridge.RunOptions{
+			BatchSize:          bifrostconfig.DefaultBridgeBatchSize,
+			MaxInFlightBatches: bifrostconfig.DefaultMaxInFlightBatches,
+			CommitInterval:     bifrostconfig.DefaultCommitInterval,
+			CommitMaxRecords:   bifrostconfig.DefaultCommitMaxRecords,
+		})
 	}()
 
 	// Wait until the bridge has relayed the from-topic bootstrap (record has bifrost source headers).
@@ -381,8 +417,20 @@ func benchmarkBridgeRelayWithBurst(b *testing.B, payloadSize int, burst int) {
 }
 
 func benchmarkBifrostRunWithBurst(b *testing.B, payloadSize int, burst, batchSize, replicas int, fromPartitions int32) {
-	b.Helper()
 	brokers := setupBenchRedpanda(b)
+	env := benchCluster(brokers, payloadSize)
+	benchmarkBifrostRunWithBurstAndCluster(b, env, payloadSize, burst, batchSize, replicas, fromPartitions)
+}
+
+func benchmarkBifrostRunWithBurstAndCluster(
+	b *testing.B,
+	env bifrostconfig.Cluster,
+	payloadSize int,
+	burst, batchSize, replicas int,
+	fromPartitions int32,
+) {
+	b.Helper()
+	brokers := env.Brokers
 	if len(brokers) == 0 {
 		b.Fatal("brokers: empty")
 	}
@@ -412,7 +460,6 @@ func benchmarkBifrostRunWithBurst(b *testing.B, payloadSize int, burst, batchSiz
 	fromTopic := "bifrost.bench.proc.from." + suffix
 	toTopic := "bifrost.bench.proc.to." + suffix
 
-	env := benchCluster(brokers, payloadSize)
 	full, err := kafka.FullClusterOpts(&env)
 	if err != nil {
 		b.Fatalf("cluster opts: %v", err)

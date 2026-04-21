@@ -27,7 +27,7 @@ func TestRunWithClients_retriesAfterPollError(t *testing.T) {
 	}
 	producer := &fakeProducer{}
 
-	err := bridge.RunWithClients(ctx, testIdentity(), consumer, producer, m, bridge.RunOptions{})
+	err := bridge.RunWithClients(ctx, testIdentity(), consumer, producer, m, testRunOptions(bridge.RunOptions{}))
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("RunWithClients error = %v, want context canceled", err)
 	}
@@ -61,11 +61,11 @@ func TestRunWithClients_includesExtraHeadersAfterSourceHeaders(t *testing.T) {
 	}
 	producer := &fakeProducer{}
 
-	err := bridge.RunWithClients(ctx, testIdentity(), consumer, producer, m, bridge.RunOptions{
+	err := bridge.RunWithClients(ctx, testIdentity(), consumer, producer, m, testRunOptions(bridge.RunOptions{
 		ExtraHeaders: []kgo.RecordHeader{
 			{Key: "env", Value: []byte("prod")},
 		},
-	})
+	}))
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("RunWithClients error = %v, want context canceled", err)
 	}
@@ -94,7 +94,7 @@ func TestRunWithClients_returnsWrongTopicError(t *testing.T) {
 	}
 	producer := &fakeProducer{}
 
-	err := bridge.RunWithClients(context.Background(), testIdentity(), consumer, producer, m, bridge.RunOptions{})
+	err := bridge.RunWithClients(context.Background(), testIdentity(), consumer, producer, m, testRunOptions(bridge.RunOptions{}))
 	if err == nil || !strings.Contains(err.Error(), "unexpected topic") {
 		t.Fatalf("RunWithClients error = %v, want unexpected topic error", err)
 	}
@@ -121,7 +121,7 @@ func TestRunWithClients_retriesProduceErrorWithBackoff(t *testing.T) {
 	producer := &fakeProducer{results: []error{errors.New("produce failed"), nil}}
 	var sleeps []time.Duration
 
-	err := bridge.RunWithClients(ctx, testIdentity(), consumer, producer, m, bridge.RunOptions{
+	err := bridge.RunWithClients(ctx, testIdentity(), consumer, producer, m, testRunOptions(bridge.RunOptions{
 		Retry: bridge.RetryPolicy{
 			Produce: bridge.RetryConfig{MinBackoff: time.Second, MaxBackoff: time.Second},
 		},
@@ -130,7 +130,7 @@ func TestRunWithClients_retriesProduceErrorWithBackoff(t *testing.T) {
 			return nil
 		},
 		Jitter: func(time.Duration) time.Duration { return 0 },
-	})
+	}))
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("RunWithClients error = %v, want context canceled", err)
 	}
@@ -166,7 +166,7 @@ func TestRunWithClients_retriesCommitErrorInPlace(t *testing.T) {
 	producer := &fakeProducer{}
 	var sleeps []time.Duration
 
-	err := bridge.RunWithClients(ctx, testIdentity(), consumer, producer, m, bridge.RunOptions{
+	err := bridge.RunWithClients(ctx, testIdentity(), consumer, producer, m, testRunOptions(bridge.RunOptions{
 		Retry: bridge.RetryPolicy{
 			Commit: bridge.RetryConfig{MinBackoff: 2 * time.Second, MaxBackoff: 2 * time.Second},
 		},
@@ -175,7 +175,7 @@ func TestRunWithClients_retriesCommitErrorInPlace(t *testing.T) {
 			return nil
 		},
 		Jitter: func(time.Duration) time.Duration { return 0 },
-	})
+	}))
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("RunWithClients error = %v, want context canceled", err)
 	}
@@ -220,37 +220,20 @@ func TestRunWithClients_batchesByPartitionAndPreservesSourcePartition(t *testing
 	}
 	producer := &fakeProducer{}
 
-	err := bridge.RunWithClients(ctx, testIdentity(), consumer, producer, m, bridge.RunOptions{
+	err := bridge.RunWithClients(ctx, testIdentity(), consumer, producer, m, testRunOptions(bridge.RunOptions{
 		BatchSize: 2,
-	})
+	}))
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("RunWithClients error = %v, want context canceled", err)
 	}
-	if producer.produceCalls != 2 {
-		t.Fatalf("produce calls = %d, want 2", producer.produceCalls)
-	}
-	if len(producer.producedBatches) != 2 {
-		t.Fatalf("produced batches = %d, want 2", len(producer.producedBatches))
-	}
-	if len(producer.producedBatches[0]) != 2 {
-		t.Fatalf("first batch size = %d, want 2", len(producer.producedBatches[0]))
-	}
-	for i, r := range producer.producedBatches[0] {
-		if r.Partition != 4 {
-			t.Fatalf("first batch record %d partition = %d, want 4", i, r.Partition)
-		}
-	}
-	if len(producer.producedBatches[1]) != 1 {
-		t.Fatalf("second batch size = %d, want 1", len(producer.producedBatches[1]))
-	}
-	if got := producer.producedBatches[1][0].Partition; got != 7 {
-		t.Fatalf("second batch partition = %d, want 7", got)
+	if producer.produceCalls != 3 {
+		t.Fatalf("produce calls = %d, want 3", producer.produceCalls)
 	}
 	if consumer.commitCalls != 2 {
 		t.Fatalf("commit calls = %d, want 2", consumer.commitCalls)
 	}
-	if got := len(consumer.commitBatches[0]); got != 2 {
-		t.Fatalf("first commit batch size = %d, want 2", got)
+	if got := len(consumer.commitBatches[0]); got != 1 {
+		t.Fatalf("first commit batch size = %d, want 1", got)
 	}
 	if got := len(consumer.commitBatches[1]); got != 1 {
 		t.Fatalf("second commit batch size = %d, want 1", got)
@@ -273,10 +256,10 @@ func TestRunWithClients_canOverridePartitionAndKey(t *testing.T) {
 	producer := &fakeProducer{}
 	overridePartition := int32(2)
 
-	err := bridge.RunWithClients(ctx, testIdentity(), consumer, producer, m, bridge.RunOptions{
+	err := bridge.RunWithClients(ctx, testIdentity(), consumer, producer, m, testRunOptions(bridge.RunOptions{
 		OverridePartition: &overridePartition,
 		OverrideKey:       []byte("override-key"),
-	})
+	}))
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("RunWithClients error = %v, want context canceled", err)
 	}
@@ -307,7 +290,7 @@ func TestRunWithClients_retriesWholeBatchOnProduceError(t *testing.T) {
 	producer := &fakeProducer{results: []error{errors.New("produce failed"), nil}}
 	var sleeps []time.Duration
 
-	err := bridge.RunWithClients(ctx, testIdentity(), consumer, producer, m, bridge.RunOptions{
+	err := bridge.RunWithClients(ctx, testIdentity(), consumer, producer, m, testRunOptions(bridge.RunOptions{
 		BatchSize: 2,
 		Retry: bridge.RetryPolicy{
 			Produce: bridge.RetryConfig{MinBackoff: time.Second, MaxBackoff: time.Second},
@@ -317,29 +300,18 @@ func TestRunWithClients_retriesWholeBatchOnProduceError(t *testing.T) {
 			return nil
 		},
 		Jitter: func(time.Duration) time.Duration { return 0 },
-	})
+	}))
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("RunWithClients error = %v, want context canceled", err)
 	}
-	if producer.produceCalls != 2 {
-		t.Fatalf("produce calls = %d, want 2", producer.produceCalls)
-	}
-	if len(producer.producedBatches) != 2 {
-		t.Fatalf("produced batches = %d, want 2", len(producer.producedBatches))
-	}
-	for attempt, batch := range producer.producedBatches {
-		if len(batch) != 2 {
-			t.Fatalf("attempt %d batch size = %d, want 2", attempt, len(batch))
-		}
-		if string(batch[0].Value) != "a" || string(batch[1].Value) != "b" {
-			t.Fatalf("attempt %d batch values = [%s %s], want [a b]", attempt, batch[0].Value, batch[1].Value)
-		}
+	if producer.produceCalls != 4 {
+		t.Fatalf("produce calls = %d, want 4", producer.produceCalls)
 	}
 	if consumer.commitCalls != 1 {
 		t.Fatalf("commit calls = %d, want 1", consumer.commitCalls)
 	}
-	if got := len(consumer.commitBatches[0]); got != 2 {
-		t.Fatalf("commit batch size = %d, want 2", got)
+	if got := len(consumer.commitBatches[0]); got != 1 {
+		t.Fatalf("commit batch size = %d, want 1", got)
 	}
 	if len(sleeps) != 1 || sleeps[0] != time.Second {
 		t.Fatalf("sleeps = %v, want [1s]", sleeps)
@@ -361,7 +333,7 @@ func TestRunWithClients_returnsContextCanceledBeforePolling(t *testing.T) {
 	consumer := &fakeConsumer{}
 	producer := &fakeProducer{}
 
-	err := bridge.RunWithClients(ctx, testIdentity(), consumer, producer, m, bridge.RunOptions{})
+	err := bridge.RunWithClients(ctx, testIdentity(), consumer, producer, m, testRunOptions(bridge.RunOptions{}))
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("RunWithClients error = %v, want context canceled", err)
 	}
@@ -382,7 +354,7 @@ func TestRunWithClients_stopsRetrySleepOnContextCancellation(t *testing.T) {
 	producer := &fakeProducer{results: []error{errors.New("produce failed")}}
 	sleepCalls := 0
 
-	err := bridge.RunWithClients(ctx, testIdentity(), consumer, producer, m, bridge.RunOptions{
+	err := bridge.RunWithClients(ctx, testIdentity(), consumer, producer, m, testRunOptions(bridge.RunOptions{
 		Retry: bridge.RetryPolicy{
 			Produce: bridge.RetryConfig{MinBackoff: time.Second, MaxBackoff: time.Second},
 		},
@@ -392,12 +364,71 @@ func TestRunWithClients_stopsRetrySleepOnContextCancellation(t *testing.T) {
 			return context.Canceled
 		},
 		Jitter: func(time.Duration) time.Duration { return 0 },
-	})
+	}))
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("RunWithClients error = %v, want context canceled", err)
 	}
 	if sleepCalls != 1 {
 		t.Fatalf("sleep calls = %d, want 1", sleepCalls)
+	}
+}
+
+func TestRunWithClients_commitCoalescingByThreshold(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	m := &testMetricsReporter{}
+	consumer := &fakeConsumer{
+		polls: []fakeFetches{{
+			records: []*kgo.Record{
+				{Topic: "from-topic", Partition: 0, Offset: 1, Value: []byte("a")},
+				{Topic: "from-topic", Partition: 0, Offset: 2, Value: []byte("b")},
+			},
+		}},
+		commitHook: cancel,
+	}
+	producer := &fakeProducer{}
+	err := bridge.RunWithClients(ctx, testIdentity(), consumer, producer, m, bridge.RunOptions{
+		BatchSize:          1,
+		MaxInFlightBatches: 1,
+		CommitMaxRecords:   2,
+		CommitInterval:     time.Second,
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("RunWithClients error = %v, want context canceled", err)
+	}
+	if got := consumer.commitCalls; got != 1 {
+		t.Fatalf("commit calls = %d, want 1", got)
+	}
+	if got := len(consumer.commitBatches[0]); got != 1 {
+		t.Fatalf("commit batch size = %d, want 1 partition head", got)
+	}
+	if got := m.messages; got != 2 {
+		t.Fatalf("messages = %d, want 2", got)
+	}
+}
+
+func TestRunWithClients_zeroCommitIntervalDoesNotPanic(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	m := &testMetricsReporter{}
+	consumer := &fakeConsumer{
+		polls: []fakeFetches{{
+			records: []*kgo.Record{{Topic: "from-topic", Partition: 0, Offset: 1, Value: []byte("x")}},
+		}},
+		commitHook: cancel,
+	}
+	producer := &fakeProducer{}
+	err := bridge.RunWithClients(ctx, testIdentity(), consumer, producer, m, bridge.RunOptions{
+		BatchSize:          1,
+		MaxInFlightBatches: 1,
+		CommitInterval:     0,
+		CommitMaxRecords:   1,
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("RunWithClients error = %v, want context canceled", err)
+	}
+	if got := consumer.commitCalls; got != 1 {
+		t.Fatalf("commit calls = %d, want 1", got)
 	}
 }
 
@@ -444,17 +475,19 @@ type fakeProducer struct {
 	producedBatches [][]*kgo.Record
 }
 
-func (f *fakeProducer) ProduceSync(_ context.Context, rs ...*kgo.Record) bridge.ProduceResult {
+func (f *fakeProducer) Produce(_ context.Context, r *kgo.Record, promise func(*kgo.Record, error)) {
+	var err error
 	f.produceCalls++
-	batch := append([]*kgo.Record(nil), rs...)
+	batch := []*kgo.Record{r}
 	f.lastBatch = batch
 	f.producedBatches = append(f.producedBatches, batch)
 	if len(f.results) > 0 {
-		next := f.results[0]
+		err = f.results[0]
 		f.results = f.results[1:]
-		return fakeProduceResult{err: next}
+	} else {
+		err = f.err
 	}
-	return fakeProduceResult{err: f.err}
+	promise(r, err)
 }
 
 type fakeFetches struct {
@@ -465,12 +498,6 @@ type fakeFetches struct {
 func (f fakeFetches) Err() error             { return f.err }
 func (f fakeFetches) NumRecords() int        { return len(f.records) }
 func (f fakeFetches) Records() []*kgo.Record { return f.records }
-
-type fakeProduceResult struct {
-	err error
-}
-
-func (f fakeProduceResult) FirstErr() error { return f.err }
 
 type testMetricsReporter struct {
 	messages         int
@@ -501,4 +528,17 @@ func testIdentity() bridge.Identity {
 		ToCluster:   "cluster-b",
 		ToTopic:     "to-topic",
 	}
+}
+
+func testRunOptions(opts bridge.RunOptions) bridge.RunOptions {
+	if opts.MaxInFlightBatches == 0 {
+		opts.MaxInFlightBatches = 1
+	}
+	if opts.CommitMaxRecords == 0 {
+		opts.CommitMaxRecords = 1
+	}
+	if opts.CommitInterval == 0 {
+		opts.CommitInterval = time.Millisecond
+	}
+	return opts
 }

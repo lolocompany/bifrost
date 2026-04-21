@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"os"
-	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -27,7 +26,10 @@ func Parse(data []byte) (*Config, error) {
 	if err := dec.Decode(&cfg); err != nil {
 		return nil, fmt.Errorf("parse yaml: %w", err)
 	}
-	cfg.applyDefaults()
+	if err := cfg.normalize(); err != nil {
+		return nil, err
+	}
+	cfg.ApplyDefaults()
 	if err := cfg.normalize(); err != nil {
 		return nil, err
 	}
@@ -46,25 +48,3 @@ func MustParse(data []byte) *Config {
 	return cfg
 }
 
-func (c *Config) applyDefaults() {
-	if strings.TrimSpace(c.Logging.Level) == "" {
-		c.Logging.Level = "info"
-	}
-	if strings.TrimSpace(c.Logging.Format) == "" {
-		c.Logging.Format = "json"
-	}
-	if strings.TrimSpace(c.Logging.Stream) == "" {
-		c.Logging.Stream = "stdout"
-	}
-	if strings.TrimSpace(c.Logging.PeriodicStatsInterval) == "" {
-		c.Logging.PeriodicStatsInterval = "5m"
-	}
-	// When metrics are on, listen_addr defaults so a minimal config can omit the whole metrics section.
-	if c.Metrics.MetricsEnabled() {
-		if addr := strings.TrimSpace(c.Metrics.ListenAddr); addr == "" {
-			c.Metrics.ListenAddr = ":9090"
-		} else {
-			c.Metrics.ListenAddr = addr
-		}
-	}
-}
