@@ -13,6 +13,8 @@ var promNameRE = regexp.MustCompile(`^[a-zA-Z_:][a-zA-Z0-9_:]*$`)
 var bifrostCounters = []string{
 	"bifrost_relay_messages_total",
 	"bifrost_relay_errors_total",
+	"bifrost_relay_consumer_seconds_total",
+	"bifrost_relay_producer_seconds_total",
 	"bifrost_kafka_connect_attempts_total",
 	"bifrost_kafka_connect_errors_total",
 	"bifrost_kafka_requests_total",

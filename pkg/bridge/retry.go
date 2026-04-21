@@ -34,7 +34,13 @@ func retryStage(
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := op(); err != nil {
+		opStart := time.Now()
+		err := op()
+		opSeconds := time.Since(opStart).Seconds()
+		if stage == "produce" {
+			m.AddProducerSeconds(id, "busy", opSeconds)
+		}
+		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return ctxErr
 			}
@@ -50,6 +56,9 @@ func retryStage(
 				"jitter", jitter.String(),
 				"sleep", sleepFor.String(),
 			)
+			if stage == "produce" {
+				m.AddProducerSeconds(id, "idle", sleepFor.Seconds())
+			}
 			if err := opts.Sleep(ctx, sleepFor); err != nil {
 				if ctxErr := ctx.Err(); ctxErr != nil {
 					return ctxErr

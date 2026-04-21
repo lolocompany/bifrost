@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -432,6 +433,38 @@ func TestRunWithClients_zeroCommitIntervalDoesNotPanic(t *testing.T) {
 	}
 }
 
+func TestRunWithClients_attributesConsumerAndProducerBusyIdleSeconds(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	m := &testMetricsReporter{}
+	consumer := &fakeConsumer{
+		pollDelay: 2 * time.Millisecond,
+		polls: []fakeFetches{
+			{},
+			{records: []*kgo.Record{{Topic: "from-topic", Value: []byte("payload")}}},
+		},
+		commitHook: cancel,
+	}
+	producer := &fakeProducer{produceDelay: 3 * time.Millisecond}
+
+	err := bridge.RunWithClients(ctx, testIdentity(), consumer, producer, m, testRunOptions(bridge.RunOptions{}))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("RunWithClients error = %v, want context canceled", err)
+	}
+	if got := m.consumerSeconds["idle"]; got <= 0 {
+		t.Fatalf("consumer idle seconds = %f, want > 0", got)
+	}
+	if got := m.consumerSeconds["busy"]; got <= 0 {
+		t.Fatalf("consumer busy seconds = %f, want > 0", got)
+	}
+	if got := m.producerSeconds["idle"]; got <= 0 {
+		t.Fatalf("producer idle seconds = %f, want > 0", got)
+	}
+	if got := m.producerSeconds["busy"]; got <= 0 {
+		t.Fatalf("producer busy seconds = %f, want > 0", got)
+	}
+}
+
 type fakeConsumer struct {
 	polls         []fakeFetches
 	commitErr     error
@@ -440,10 +473,14 @@ type fakeConsumer struct {
 	commitBatches [][]*kgo.Record
 	pollCalls     int
 	commitCalls   int
+	pollDelay     time.Duration
 }
 
 func (f *fakeConsumer) PollFetches(context.Context) bridge.FetchResult {
 	f.pollCalls++
+	if f.pollDelay > 0 {
+		time.Sleep(f.pollDelay)
+	}
 	if len(f.polls) == 0 {
 		return fakeFetches{}
 	}
@@ -473,11 +510,15 @@ type fakeProducer struct {
 	produceCalls    int
 	lastBatch       []*kgo.Record
 	producedBatches [][]*kgo.Record
+	produceDelay    time.Duration
 }
 
 func (f *fakeProducer) Produce(_ context.Context, r *kgo.Record, promise func(*kgo.Record, error)) {
 	var err error
 	f.produceCalls++
+	if f.produceDelay > 0 {
+		time.Sleep(f.produceDelay)
+	}
 	batch := []*kgo.Record{r}
 	f.lastBatch = batch
 	f.producedBatches = append(f.producedBatches, batch)
@@ -500,16 +541,23 @@ func (f fakeFetches) NumRecords() int        { return len(f.records) }
 func (f fakeFetches) Records() []*kgo.Record { return f.records }
 
 type testMetricsReporter struct {
+	mu               sync.Mutex
 	messages         int
 	errors           map[string]int
 	produceDurations []float64
+	consumerSeconds  map[string]float64
+	producerSeconds  map[string]float64
 }
 
 func (m *testMetricsReporter) IncMessages(bridge.Identity) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.messages++
 }
 
 func (m *testMetricsReporter) IncErrors(_ bridge.Identity, stage string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.errors == nil {
 		m.errors = make(map[string]int)
 	}
@@ -517,7 +565,27 @@ func (m *testMetricsReporter) IncErrors(_ bridge.Identity, stage string) {
 }
 
 func (m *testMetricsReporter) ObserveProduceDuration(_ bridge.Identity, seconds float64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.produceDurations = append(m.produceDurations, seconds)
+}
+
+func (m *testMetricsReporter) AddConsumerSeconds(_ bridge.Identity, state string, seconds float64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.consumerSeconds == nil {
+		m.consumerSeconds = make(map[string]float64)
+	}
+	m.consumerSeconds[state] += seconds
+}
+
+func (m *testMetricsReporter) AddProducerSeconds(_ bridge.Identity, state string, seconds float64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.producerSeconds == nil {
+		m.producerSeconds = make(map[string]float64)
+	}
+	m.producerSeconds[state] += seconds
 }
 
 func testIdentity() bridge.Identity {

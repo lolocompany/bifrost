@@ -42,6 +42,38 @@ Additional labels may appear when `metrics.extra_labels` is configured; those ar
 | `bifrost_relay_messages_total` | `Counter` | `bridge`, `from_cluster`, `from_topic`, `to_cluster`, `to_topic` | Count of records relayed successfully (produce + commit completed). |
 | `bifrost_relay_errors_total` | `Counter` | `bridge`, `from_cluster`, `from_topic`, `to_cluster`, `to_topic`, `stage` | Count of relay errors by stage (`poll`, `produce`, `commit`, `route`). |
 | `bifrost_relay_produce_duration_seconds` | `Histogram` | `bridge`, `from_cluster`, `from_topic`, `to_cluster`, `to_topic` | Histogram of to-side produce time per synchronous relay produce call (one record when `batch_size=1`, otherwise one source-partition batch). |
+| `bifrost_relay_consumer_seconds_total` | `Counter` | `bridge`, `from_cluster`, `from_topic`, `to_cluster`, `to_topic`, `state` | Wall-clock seconds attributed to consumer state. `state` is `busy` when poll returns records, otherwise `idle`. |
+| `bifrost_relay_producer_seconds_total` | `Counter` | `bridge`, `from_cluster`, `from_topic`, `to_cluster`, `to_topic`, `state` | Wall-clock seconds attributed to producer state. `state` is `busy` during produce attempts, `idle` during no-work poll intervals and retry backoff sleeps. |
+
+### Idle Percentage Queries
+
+Use `rate(...)` over a window (for example, `5m`) and divide idle by total (`idle + busy`).
+
+Consumer idle %:
+
+```promql
+100 *
+sum by (bridge, from_cluster, from_topic, to_cluster, to_topic) (
+  rate(bifrost_relay_consumer_seconds_total{state="idle"}[5m])
+)
+/
+sum by (bridge, from_cluster, from_topic, to_cluster, to_topic) (
+  rate(bifrost_relay_consumer_seconds_total[5m])
+)
+```
+
+Producer idle %:
+
+```promql
+100 *
+sum by (bridge, from_cluster, from_topic, to_cluster, to_topic) (
+  rate(bifrost_relay_producer_seconds_total{state="idle"}[5m])
+)
+/
+sum by (bridge, from_cluster, from_topic, to_cluster, to_topic) (
+  rate(bifrost_relay_producer_seconds_total[5m])
+)
+```
 
 ## kafka
 

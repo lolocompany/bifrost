@@ -17,6 +17,8 @@ type BridgeMetrics struct {
 	messages        *prometheus.CounterVec
 	errors          *prometheus.CounterVec
 	produceDuration *prometheus.HistogramVec
+	consumerSeconds *prometheus.CounterVec
+	producerSeconds *prometheus.CounterVec
 }
 
 func newBridgeMetrics(reg prometheus.Registerer, bridges []config.Bridge) (BridgeMetrics, error) {
@@ -59,6 +61,30 @@ func newBridgeMetrics(reg prometheus.Registerer, bridges []config.Bridge) (Bridg
 	}
 	m.produceDuration = h
 
+	consumerSeconds := prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "bifrost_relay_consumer_seconds_total",
+			Help: "Wall-clock seconds attributed to consumer state by bridge (busy or idle).",
+		},
+		append(append([]string(nil), bridge.LabelNames...), "state"),
+	)
+	if err := reg.Register(consumerSeconds); err != nil {
+		return BridgeMetrics{}, fmt.Errorf("register relay consumer seconds counter: %w", err)
+	}
+	m.consumerSeconds = consumerSeconds
+
+	producerSeconds := prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "bifrost_relay_producer_seconds_total",
+			Help: "Wall-clock seconds attributed to producer state by bridge (busy or idle).",
+		},
+		append(append([]string(nil), bridge.LabelNames...), "state"),
+	)
+	if err := reg.Register(producerSeconds); err != nil {
+		return BridgeMetrics{}, fmt.Errorf("register relay producer seconds counter: %w", err)
+	}
+	m.producerSeconds = producerSeconds
+
 	initBridgeSeries(m, bridges)
 	return m, nil
 }
@@ -73,6 +99,16 @@ func initBridgeSeries(m BridgeMetrics, bridges []config.Bridge) {
 		if m.errors != nil {
 			for _, stage := range []string{"poll", "produce", "commit", "route"} {
 				m.errors.WithLabelValues(append(append([]string(nil), v...), stage)...).Add(0)
+			}
+		}
+		if m.consumerSeconds != nil {
+			for _, state := range []string{"busy", "idle"} {
+				m.consumerSeconds.WithLabelValues(append(append([]string(nil), v...), state)...).Add(0)
+			}
+		}
+		if m.producerSeconds != nil {
+			for _, state := range []string{"busy", "idle"} {
+				m.producerSeconds.WithLabelValues(append(append([]string(nil), v...), state)...).Add(0)
 			}
 		}
 	}
@@ -101,4 +137,20 @@ func (m BridgeMetrics) ObserveProduceDuration(id bridge.Identity, seconds float6
 		return
 	}
 	m.produceDuration.WithLabelValues(id.LabelValues()...).Observe(seconds)
+}
+
+func (m BridgeMetrics) AddConsumerSeconds(id bridge.Identity, state string, seconds float64) {
+	if m.consumerSeconds == nil || seconds <= 0 {
+		return
+	}
+	v := id.LabelValues()
+	m.consumerSeconds.WithLabelValues(append(append([]string(nil), v...), state)...).Add(seconds)
+}
+
+func (m BridgeMetrics) AddProducerSeconds(id bridge.Identity, state string, seconds float64) {
+	if m.producerSeconds == nil || seconds <= 0 {
+		return
+	}
+	v := id.LabelValues()
+	m.producerSeconds.WithLabelValues(append(append([]string(nil), v...), state)...).Add(seconds)
 }

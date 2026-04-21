@@ -18,6 +18,8 @@ type MetricsReporter interface {
 	IncMessages(id Identity)
 	IncErrors(id Identity, stage string)
 	ObserveProduceDuration(id Identity, seconds float64)
+	AddConsumerSeconds(id Identity, state string, seconds float64)
+	AddProducerSeconds(id Identity, state string, seconds float64)
 }
 
 // FetchResult is the consumed batch surface used by RunWithClients.
@@ -202,8 +204,12 @@ func RunWithClients(ctx context.Context, id Identity, consumer ConsumerClient, p
 				_ = flushCommits(context.Background(), log, consumer, &errorsSeen, &msgsRelayed, metrics, id, opts, committer)
 				return err
 			}
+			pollStart := time.Now()
 			fetches := consumer.PollFetches(ctx)
+			pollSeconds := time.Since(pollStart).Seconds()
 			if err := fetches.Err(); err != nil {
+				metrics.AddConsumerSeconds(id, "idle", pollSeconds)
+				metrics.AddProducerSeconds(id, "idle", pollSeconds)
 				metrics.IncErrors(id, "poll")
 				errorsSeen.Add(1)
 				if !lastPollFailed {
@@ -217,8 +223,11 @@ func RunWithClients(ctx context.Context, id Identity, consumer ConsumerClient, p
 				lastPollFailed = false
 			}
 			if fetches.NumRecords() == 0 {
+				metrics.AddConsumerSeconds(id, "idle", pollSeconds)
+				metrics.AddProducerSeconds(id, "idle", pollSeconds)
 				continue
 			}
+			metrics.AddConsumerSeconds(id, "busy", pollSeconds)
 			batches, err := partitionBatches(id, fetches.Records(), opts.BatchSize)
 			if err != nil {
 				log.Warn("unexpected topic on fetch", "topic", errTopic(err))
