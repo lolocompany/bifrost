@@ -49,3 +49,9 @@ tmp
 
 # GoReleaser build output
 dist/
+
+# Codequality pipeline artifacts (keep baseline.json in VCS)
+reports/codequality/raw/
+reports/codequality/snapshots/
+reports/codequality/*scorecard.json
+reports/codequality/*scorecard.md

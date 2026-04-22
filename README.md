@@ -146,17 +146,21 @@ If you omit these blocks, bifrost uses the same defaults shown above. Commit ret
 
 ### Development
 
-| Command                 | Purpose                                                                                        |
-| ----------------------- | ---------------------------------------------------------------------------------------------- |
-| `make build`            | Build `./bifrost` from source                                                                  |
-| `make test`             | Run unit tests (`./test/unit/...`)                                                             |
-| `make test-integration` | Run Docker-backed integration tests (`BIFROST_INTEGRATION=1`)                                  |
-| `make bench`            | Default subset; **one Redpanda container per benchmark** (isolated; slower than shared broker) |
-| `make lint`             | Run `go vet`, `go mod verify`, `govulncheck`, `gosec`, and `golangci-lint`                     |
-| `make format`           | Run `go fmt` and `gofmt`                                                                       |
+| Command | Purpose |
+| --- | --- |
+| `make build` | Build `./bifrost` from source |
+| `make test` | Run unit tests (`./test/unit/...`) |
+| `make test-integration` | Run Docker-backed integration tests (`BIFROST_INTEGRATION=1`) |
+| `make bench` | Default subset; **one Redpanda container per benchmark** (isolated; slower than shared broker) |
+| `make lint` | Run `go vet`, `go mod verify`, `govulncheck`, `gosec`, and `golangci-lint` |
+| `make codequality-scorecard` | Generate codequality scorecard (`reports/codequality/scorecard.{json,md}`) |
+| `make codequality-baseline` | Capture/refresh codequality baseline for regression gates |
+| `make codequality-gate` | Enforce codequality regression + severe outlier gates |
+| `make format` | Run `go fmt` and `gofmt` |
 
 Contributor and agent-oriented notes on layout and naming: `[docs/AGENTS.md](./docs/AGENTS.md)`.
 Configuration profiles and tradeoffs: `[docs/config-profiles.md](./docs/config-profiles.md)`.
+Codequality policy and governance: `[docs/codequality.md](./docs/codequality.md)` and `[docs/maintainability-governance.md](./docs/maintainability-governance.md)`.
 
 ---
 

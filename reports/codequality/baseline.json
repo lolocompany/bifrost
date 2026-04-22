@@ -1,0 +1,287 @@
+{
+  "generated_at": "2026-04-22T08:07:52.680334+00:00",
+  "thresholds": {
+    "coverage_total_target": 70.0,
+    "cyclo_warn": 10,
+    "cyclo_red": 15,
+    "cogn_warn": 15,
+    "cogn_red": 20,
+    "duplication_warn_groups": 1,
+    "duplication_red_groups": 5
+  },
+  "summary": {
+    "coverage_total": {
+      "value": 53.0,
+      "target": 70.0,
+      "status": "yellow"
+    },
+    "cyclomatic_over_red": {
+      "value": 6,
+      "target": 0,
+      "status": "yellow"
+    },
+    "cognitive_over_red": {
+      "value": 4,
+      "target": 0,
+      "status": "yellow"
+    },
+    "duplication_groups": {
+      "value": 0,
+      "target": 0,
+      "status": "green"
+    }
+  },
+  "coverage": {
+    "total_percent": 53.0
+  },
+  "cyclomatic": {
+    "max_value": 32,
+    "over_warn": 17,
+    "over_red": 6,
+    "top": [
+      {
+        "value": 32,
+        "package": "bifrost",
+        "function": "Run",
+        "location": "pkg/bifrost/run.go:19:1"
+      },
+      {
+        "value": 30,
+        "package": "bridge",
+        "function": "RunWithClients",
+        "location": "pkg/bridge/bridge.go:93:1"
+      },
+      {
+        "value": 22,
+        "package": "bifrost",
+        "function": "allocateAutoFromWeights",
+        "location": "pkg/bifrost/replica_budget.go:136:1"
+      },
+      {
+        "value": 21,
+        "package": "config",
+        "function": "(*Bridge).validate",
+        "location": "pkg/config/bridge.go:49:1"
+      },
+      {
+        "value": 19,
+        "package": "config",
+        "function": "(*Cluster).validateCrossField",
+        "location": "pkg/config/cluster_validate.go:53:1"
+      },
+      {
+        "value": 16,
+        "package": "kafka",
+        "function": "ClientOpts",
+        "location": "pkg/kafka/opts.go:29:1"
+      },
+      {
+        "value": 15,
+        "package": "metrics",
+        "function": "(*franzHook).OnBrokerConnect",
+        "location": "pkg/metrics/broker_metrics.go:106:1"
+      },
+      {
+        "value": 14,
+        "package": "kafka",
+        "function": "ConsumerClusterOpts",
+        "location": "pkg/kafka/opts.go:136:1"
+      },
+      {
+        "value": 14,
+        "package": "bifrost",
+        "function": "logKafkaClientDebug",
+        "location": "pkg/bifrost/kafka_wiring.go:274:1"
+      },
+      {
+        "value": 12,
+        "package": "kafka",
+        "function": "ProducerClusterOpts",
+        "location": "pkg/kafka/opts.go:183:1"
+      }
+    ]
+  },
+  "cognitive": {
+    "max_value": 68,
+    "over_warn": 13,
+    "over_red": 4,
+    "top": [
+      {
+        "value": 68,
+        "package": "bridge",
+        "function": "RunWithClients",
+        "location": "pkg/bridge/bridge.go:93:1"
+      },
+      {
+        "value": 54,
+        "package": "bifrost",
+        "function": "Run",
+        "location": "pkg/bifrost/run.go:19:1"
+      },
+      {
+        "value": 27,
+        "package": "bifrost",
+        "function": "allocateAutoFromWeights",
+        "location": "pkg/bifrost/replica_budget.go:136:1"
+      },
+      {
+        "value": 22,
+        "package": "config",
+        "function": "(*Bridge).validate",
+        "location": "pkg/config/bridge.go:49:1"
+      },
+      {
+        "value": 20,
+        "package": "bridge",
+        "function": "retryStage",
+        "location": "pkg/bridge/retry.go:21:1"
+      },
+      {
+        "value": 19,
+        "package": "metrics",
+        "function": "(*franzHook).OnBrokerConnect",
+        "location": "pkg/metrics/broker_metrics.go:106:1"
+      },
+      {
+        "value": 18,
+        "package": "metrics",
+        "function": "initBridgeSeries",
+        "location": "pkg/metrics/bridge_metrics.go:92:1"
+      },
+      {
+        "value": 18,
+        "package": "bifrost",
+        "function": "logKafkaClientDebug",
+        "location": "pkg/bifrost/kafka_wiring.go:274:1"
+      },
+      {
+        "value": 16,
+        "package": "bifrost",
+        "function": "PlanReplicaCounts",
+        "location": "pkg/bifrost/replica_budget.go:71:1"
+      },
+      {
+        "value": 16,
+        "package": "kafka",
+        "function": "dialBrokerConn",
+        "location": "pkg/kafka/opts.go:91:1"
+      }
+    ]
+  },
+  "duplication": {
+    "clone_groups": 0
+  },
+  "modularity": {
+    "fanout": {
+      "average": 1.62,
+      "max": 4,
+      "top": [
+        {
+          "package": "github.com/lolocompany/bifrost/pkg/bifrost",
+          "fanout": 4
+        },
+        {
+          "package": "github.com/lolocompany/bifrost/cmd/bifrost",
+          "fanout": 4
+        },
+        {
+          "package": "github.com/lolocompany/bifrost/pkg/metrics",
+          "fanout": 2
+        },
+        {
+          "package": "github.com/lolocompany/bifrost/pkg/bridge",
+          "fanout": 1
+        },
+        {
+          "package": "github.com/lolocompany/bifrost/pkg/kafka",
+          "fanout": 1
+        },
+        {
+          "package": "github.com/lolocompany/bifrost/pkg/logging",
+          "fanout": 1
+        },
+        {
+          "package": "github.com/lolocompany/bifrost/pkg/config",
+          "fanout": 0
+        },
+        {
+          "package": "github.com/lolocompany/bifrost/cmd/bifrost/version",
+          "fanout": 0
+        }
+      ]
+    },
+    "package_cycles": 0
+  },
+  "hotspots": [
+    {
+      "file": "pkg/bridge/bridge.go",
+      "churn_180d": 11,
+      "cyclomatic_sum": 33,
+      "cognitive_sum": 70,
+      "risk": 1133
+    },
+    {
+      "file": "pkg/bifrost/kafka_wiring.go",
+      "churn_180d": 7,
+      "cyclomatic_sum": 64,
+      "cognitive_sum": 59,
+      "risk": 861
+    },
+    {
+      "file": "pkg/kafka/opts.go",
+      "churn_180d": 4,
+      "cyclomatic_sum": 87,
+      "cognitive_sum": 81,
+      "risk": 672
+    },
+    {
+      "file": "pkg/bifrost/run.go",
+      "churn_180d": 6,
+      "cyclomatic_sum": 37,
+      "cognitive_sum": 59,
+      "risk": 576
+    },
+    {
+      "file": "pkg/metrics/broker_metrics.go",
+      "churn_180d": 6,
+      "cyclomatic_sum": 48,
+      "cognitive_sum": 41,
+      "risk": 534
+    },
+    {
+      "file": "pkg/config/bridge.go",
+      "churn_180d": 5,
+      "cyclomatic_sum": 56,
+      "cognitive_sum": 50,
+      "risk": 530
+    },
+    {
+      "file": "pkg/metrics/bridge_metrics.go",
+      "churn_180d": 5,
+      "cyclomatic_sum": 27,
+      "cognitive_sum": 30,
+      "risk": 285
+    },
+    {
+      "file": "pkg/bifrost/replica_budget.go",
+      "churn_180d": 2,
+      "cyclomatic_sum": 54,
+      "cognitive_sum": 65,
+      "risk": 238
+    },
+    {
+      "file": "pkg/logging/logging.go",
+      "churn_180d": 7,
+      "cyclomatic_sum": 20,
+      "cognitive_sum": 8,
+      "risk": 196
+    },
+    {
+      "file": "pkg/config/cluster_validate.go",
+      "churn_180d": 1,
+      "cyclomatic_sum": 94,
+      "cognitive_sum": 95,
+      "risk": 189
+    }
+  ]
+}

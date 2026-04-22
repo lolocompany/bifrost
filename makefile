@@ -1,6 +1,7 @@
 # All targets are phony (no file named "build", "test", etc. should shadow these).
 .PHONY: bench bench-full bench-profile-block bench-profile-cpu bench-profile-mem bench-profile-trace \
-	build build-release build-docker format help lint test test-coverage test-integration
+	build build-release build-docker codequality-baseline codequality-gate codequality-review codequality-scorecard format help lint \
+	test test-coverage test-integration
 
 # Isolated Redpanda per benchmark: wall time grows with container churn; allow a generous cap.
 BENCH_PATTERN ?= BenchmarkBridgeRelay256B|BenchmarkKafkaRoundTrip256B|BenchmarkBridgeRelayBurst256B
@@ -28,6 +29,10 @@ help:
 	@printf '  %-30s %s\n' 'format' 'go fmt + gofmt -w'
 	@printf '  %-30s %s\n' 'help' 'Show this message'
 	@printf '  %-30s %s\n' 'lint' 'go vet, go mod verify, govulncheck/gosec (go tool), golangci-lint'
+	@printf '  %-30s %s\n' 'codequality-scorecard' 'Build codequality scorecard JSON/Markdown'
+	@printf '  %-30s %s\n' 'codequality-baseline' 'Capture baseline codequality snapshot for regression gating'
+	@printf '  %-30s %s\n' 'codequality-gate' 'Run codequality gate checks (absolute + regression)'
+	@printf '  %-30s %s\n' 'codequality-review' 'Generate scorecard and print top hotspots for weekly triage'
 	@printf '  %-30s %s\n' 'test' 'Unit tests (./test/unit/...)'
 	@printf '  %-30s %s\n' 'test-coverage' 'Integration + unit tests; coverage.out + HTML (-coverpkg ./pkg/...; ./test/...)'
 	@printf '  %-30s %s\n' 'test-integration' 'Integration tests (BIFROST_INTEGRATION=1; ./test/integration/...)'
@@ -38,6 +43,20 @@ lint:
 	go tool govulncheck ./...
 	go tool gosec -fmt text -stdout -quiet ./...
 	golangci-lint run ./...
+
+codequality-scorecard:
+	python3 scripts/codequality_pipeline.py --output-prefix scorecard
+
+codequality-baseline:
+	python3 scripts/codequality_pipeline.py --output-prefix baseline-scorecard --write-baseline
+
+codequality-gate:
+	python3 scripts/codequality_pipeline.py --output-prefix gate-scorecard --enforce
+
+codequality-review:
+	python3 scripts/codequality_pipeline.py --output-prefix weekly-scorecard
+	@echo "Top hotspots (churn x complexity):"
+	@python3 -c 'import json; from pathlib import Path; report=Path("reports/codequality/weekly-scorecard.json"); data=json.loads(report.read_text(encoding="utf-8")); [print(f"- {r[\"risk\"]:>5} {r[\"file\"]} (churn={r[\"churn_180d\"]}, cyclo={r[\"cyclomatic_sum\"]}, cogn={r[\"cognitive_sum\"]})") for r in data.get("hotspots", [])[:10]]'
 
 format:
 	go fmt ./...
