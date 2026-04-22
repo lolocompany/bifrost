@@ -121,15 +121,7 @@ func dialBrokerConn(ctx context.Context, network, host string, tlsCfg *tls.Confi
 }
 
 func parseDurationField(s string) (d time.Duration, set bool, err error) {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return 0, false, nil
-	}
-	d, err = time.ParseDuration(s)
-	if err != nil {
-		return 0, false, err
-	}
-	return d, true, nil
+	return config.ParseOptionalDuration("duration", s)
 }
 
 // ConsumerClusterOpts returns franz-go options from cluster.consumer (fetch, group, isolation).
@@ -243,20 +235,28 @@ func FullClusterOpts(env *config.Cluster) ([]kgo.Opt, error) {
 }
 
 func requiredAcksFromString(s string) (kgo.Acks, error) {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "", "all", "-1":
+	normalized, err := config.NormalizeRequiredAcks(s)
+	if err != nil {
+		return kgo.Acks{}, fmt.Errorf("producer.required_acks: %w", err)
+	}
+	switch normalized {
+	case "all":
 		return kgo.AllISRAcks(), nil
-	case "none", "0":
+	case "none":
 		return kgo.NoAck(), nil
-	case "leader", "1":
+	case "leader":
 		return kgo.LeaderAck(), nil
 	default:
-		return kgo.Acks{}, fmt.Errorf("producer.required_acks: unsupported %q (use all, leader, none)", s)
+		return kgo.Acks{}, fmt.Errorf("producer.required_acks: unsupported canonical value %q", normalized)
 	}
 }
 
 func producerCompressionOpt(s string) (kgo.ProducerOpt, error) {
-	switch strings.ToLower(strings.TrimSpace(s)) {
+	normalized, err := config.NormalizeCompression(s)
+	if err != nil {
+		return nil, fmt.Errorf("producer.%w", err)
+	}
+	switch normalized {
 	case "":
 		return nil, nil
 	case "none":

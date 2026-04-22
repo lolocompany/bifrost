@@ -8,6 +8,17 @@ import (
 	"time"
 )
 
+type retryContext struct {
+	ctx        context.Context
+	log        *slog.Logger
+	stage      string
+	cfg        RetryConfig
+	errorsSeen *atomic.Uint64
+	metrics    MetricsReporter
+	id         Identity
+	opts       RunOptions
+}
+
 func (o RunOptions) withDefaults() RunOptions {
 	if o.Sleep == nil {
 		o.Sleep = sleepContext
@@ -18,57 +29,63 @@ func (o RunOptions) withDefaults() RunOptions {
 	return o
 }
 
-func retryStage(
-	ctx context.Context,
-	log *slog.Logger,
-	stage string,
-	cfg RetryConfig,
-	errorsSeen *atomic.Uint64,
-	m MetricsReporter,
-	id Identity,
-	opts RunOptions,
-	op func() error,
-) error {
+func retryStage(rc retryContext, op func() error) error {
 	attempt := 0
 	for {
-		if err := ctx.Err(); err != nil {
+		if err := rc.ctx.Err(); err != nil {
 			return err
 		}
-		opStart := time.Now()
-		err := op()
-		opSeconds := time.Since(opStart).Seconds()
-		if stage == "produce" {
-			m.AddProducerSeconds(id, "busy", opSeconds)
-		}
+		err := runRetryAttempt(rc.stage, rc.metrics, rc.id, op)
 		if err != nil {
-			if ctxErr := ctx.Err(); ctxErr != nil {
+			if ctxErr := rc.ctx.Err(); ctxErr != nil {
 				return ctxErr
 			}
-			m.IncErrors(id, stage)
-			errorsSeen.Add(1)
-			attempt++
-			base, jitter, sleepFor := retryDelay(attempt, cfg, opts.Jitter)
-			log.Warn("bridge stage failed; retrying",
-				"stage", stage,
-				"attempt", attempt,
-				"error_message", err.Error(),
-				"base_backoff", base.String(),
-				"jitter", jitter.String(),
-				"sleep", sleepFor.String(),
-			)
-			if stage == "produce" {
-				m.AddProducerSeconds(id, "idle", sleepFor.Seconds())
+			nextAttempt, retryErr := handleRetryFailure(rc, attempt, err)
+			if retryErr != nil {
+				return retryErr
 			}
-			if err := opts.Sleep(ctx, sleepFor); err != nil {
-				if ctxErr := ctx.Err(); ctxErr != nil {
-					return ctxErr
-				}
-				return err
-			}
+			attempt = nextAttempt
 			continue
 		}
 		return nil
 	}
+}
+
+func runRetryAttempt(stage string, m MetricsReporter, id Identity, op func() error) error {
+	opStart := time.Now()
+	err := op()
+	if stage == StageProduce {
+		m.AddProducerSeconds(id, RelayStateBusy, time.Since(opStart).Seconds())
+	}
+	return err
+}
+
+func handleRetryFailure(rc retryContext, attempt int, opErr error) (int, error) {
+	rc.metrics.IncErrors(rc.id, rc.stage)
+	rc.errorsSeen.Add(1)
+	attempt++
+	if rc.cfg.MaxAttempts > 0 && attempt >= rc.cfg.MaxAttempts {
+		return attempt, opErr
+	}
+	base, jitter, sleepFor := retryDelay(attempt, rc.cfg, rc.opts.Jitter)
+	rc.log.Warn("bridge stage failed; retrying",
+		"stage", rc.stage,
+		"attempt", attempt,
+		"error_message", opErr.Error(),
+		"base_backoff", base.String(),
+		"jitter", jitter.String(),
+		"sleep", sleepFor.String(),
+	)
+	if rc.stage == StageProduce {
+		rc.metrics.AddProducerSeconds(rc.id, RelayStateIdle, sleepFor.Seconds())
+	}
+	if err := rc.opts.Sleep(rc.ctx, sleepFor); err != nil {
+		if ctxErr := rc.ctx.Err(); ctxErr != nil {
+			return attempt, ctxErr
+		}
+		return attempt, err
+	}
+	return attempt, nil
 }
 
 func retryDelay(attempt int, cfg RetryConfig, jitterFn func(time.Duration) time.Duration) (time.Duration, time.Duration, time.Duration) {

@@ -1,9 +1,7 @@
 package bridge
 
 import (
-	"context"
 	"fmt"
-	"log/slog"
 	"sync/atomic"
 
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -17,6 +15,13 @@ type commitCandidate struct {
 type commitAggregator struct {
 	heads   map[int32]*kgo.Record
 	pending int
+}
+
+type commitContext struct {
+	consumer    ConsumerClient
+	msgsRelayed *atomic.Uint64
+	committer   *commitAggregator
+	retry       retryContext
 }
 
 func newCommitAggregator(_ int) *commitAggregator {
@@ -48,30 +53,23 @@ func (c *commitAggregator) drain() []*kgo.Record {
 	return out
 }
 
-func flushCommits(
-	ctx context.Context,
-	log *slog.Logger,
-	consumer ConsumerClient,
-	errorsSeen *atomic.Uint64,
-	msgsRelayed *atomic.Uint64,
-	metrics MetricsReporter,
-	id Identity,
-	opts RunOptions,
-	committer *commitAggregator,
-) error {
-	pending := committer.pendingRecords()
-	records := committer.drain()
+func flushCommits(cc commitContext) error {
+	pending := cc.committer.pendingRecords()
+	records := cc.committer.drain()
 	if len(records) == 0 {
 		return nil
 	}
-	if err := retryStage(ctx, log, "commit", opts.Retry.Commit, errorsSeen, metrics, id, opts, func() error {
-		return consumer.CommitRecords(ctx, records...)
+	retry := cc.retry
+	retry.stage = StageCommit
+	retry.cfg = cc.retry.opts.Retry.Commit
+	if err := retryStage(retry, func() error {
+		return cc.consumer.CommitRecords(retry.ctx, records...)
 	}); err != nil {
 		return fmt.Errorf("commit from-side offsets: %w", err)
 	}
 	for i := 0; i < pending; i++ {
-		metrics.IncMessages(id)
+		cc.retry.metrics.IncMessages(cc.retry.id)
 	}
-	msgsRelayed.Add(uint64(pending))
+	cc.msgsRelayed.Add(uint64(pending))
 	return nil
 }

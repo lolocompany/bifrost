@@ -24,6 +24,7 @@ type MetricsRegistry struct {
 	BrokerMetrics BrokerMetrics
 	gatherer      prometheus.Gatherer
 	serverStop    func()
+	serverErr     <-chan error
 }
 
 // Gather returns the current set of metric families (Prometheus text exposition source).
@@ -36,7 +37,14 @@ func (m *MetricsRegistry) Gather() ([]*dto.MetricFamily, error) {
 
 // StopServer shuts down the metrics HTTP listener if one was started.
 func (m *MetricsRegistry) StopServer() {
-	m.serverStop()
+	if m.serverStop != nil {
+		m.serverStop()
+	}
+}
+
+// ServerErr reports unexpected serve-loop errors after startup.
+func (m *MetricsRegistry) ServerErr() <-chan error {
+	return m.serverErr
 }
 
 // NewFromConfig registers collectors from cfg and starts the /metrics HTTP server when enabled.
@@ -47,7 +55,7 @@ func NewFromConfig(cfg config.Config) (MetricsRegistry, error) {
 			"metrics.extra_labels include reserved scrape labels or built-in metric variable labels; this may cause exact or semantic label collisions",
 			"conflicting_extra_labels", conflicts,
 			"reserved_scrape_labels", append(sortedLabelSetKeys(reservedScrapeLabels), reservedInternalLabelRE.String()),
-			"built_in_metric_labels", sortedLabelSetKeys(builtInMetricVariableLabels),
+			"built_in_metric_labels", sortedLabelSetKeys(config.MetricVariableLabels()),
 		)
 	}
 	registerer := wrapRegistererWithExtraLabels(reg, cfg.Metrics.ExtraLabels)
@@ -72,7 +80,7 @@ func NewFromConfig(cfg config.Config) (MetricsRegistry, error) {
 		}
 	}
 
-	stop, err := startMetricsHTTPServer(cfg.Metrics, reg)
+	stop, serverErr, err := startMetricsHTTPServer(cfg.Metrics, reg)
 	if err != nil {
 		return MetricsRegistry{}, fmt.Errorf("metrics: %w", err)
 	}
@@ -82,6 +90,7 @@ func NewFromConfig(cfg config.Config) (MetricsRegistry, error) {
 		BrokerMetrics: brokerMetrics,
 		gatherer:      reg,
 		serverStop:    stop,
+		serverErr:     serverErr,
 	}, nil
 }
 
@@ -102,15 +111,11 @@ var reservedScrapeLabels = map[string]struct{}{
 
 var reservedInternalLabelRE = regexp.MustCompile(`^__.*__$`)
 
-var builtInMetricVariableLabels = map[string]struct{}{
-	"bridge": {}, "from_kafka_cluster": {}, "from_topic": {}, "to_kafka_cluster": {}, "to_topic": {},
-	"stage": {}, "state": {}, "kafka_cluster": {}, "tls_version": {}, "le": {}, "quantile": {},
-}
-
 func conflictingReservedOrBuiltInLabels(extraLabels map[string]string) []string {
 	if len(extraLabels) == 0 {
 		return nil
 	}
+	builtInLabels := config.MetricVariableLabels()
 	conflicts := make([]string, 0, len(extraLabels))
 	for key := range extraLabels {
 		name := strings.TrimSpace(key)
@@ -121,7 +126,7 @@ func conflictingReservedOrBuiltInLabels(extraLabels map[string]string) []string 
 			conflicts = append(conflicts, name)
 			continue
 		}
-		if _, ok := builtInMetricVariableLabels[name]; ok {
+		if _, ok := builtInLabels[name]; ok {
 			conflicts = append(conflicts, name)
 		}
 	}
@@ -149,9 +154,9 @@ func (l *errorLogger) Println(v ...interface{}) {
 	l.logger.Error(fmt.Sprint(v...))
 }
 
-func startMetricsHTTPServer(cfg config.Metrics, reg *prometheus.Registry) (func(), error) {
+func startMetricsHTTPServer(cfg config.Metrics, reg *prometheus.Registry) (func(), <-chan error, error) {
 	if !cfg.MetricsEnabled() {
-		return func() {}, nil
+		return func() {}, nil, nil
 	}
 
 	mux := http.NewServeMux()
@@ -168,13 +173,19 @@ func startMetricsHTTPServer(cfg config.Metrics, reg *prometheus.Registry) (func(
 
 	ln, err := net.Listen("tcp", cfg.ListenAddr)
 	if err != nil {
-		return nil, fmt.Errorf("metrics listen: %w", err)
+		return nil, nil, fmt.Errorf("metrics listen: %w", err)
 	}
+	errCh := make(chan error, 1)
 
 	go func() {
 		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("metrics server exited", "error_message", err.Error())
+			select {
+			case errCh <- err:
+			default:
+			}
 		}
+		close(errCh)
 	}()
 
 	return func() {
@@ -183,5 +194,5 @@ func startMetricsHTTPServer(cfg config.Metrics, reg *prometheus.Registry) (func(
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			slog.Error("metrics shutdown", "error_message", err.Error())
 		}
-	}, nil
+	}, errCh, nil
 }

@@ -29,11 +29,6 @@ type FetchResult interface {
 	Records() []*kgo.Record
 }
 
-// ProduceResult is the synchronous produce result surface used by RunWithClients.
-type ProduceResult interface {
-	FirstErr() error
-}
-
 // ConsumerClient is the minimal consumer surface required by the relay loop.
 type ConsumerClient interface {
 	PollFetches(context.Context) FetchResult
@@ -50,6 +45,8 @@ type RetryConfig struct {
 	MinBackoff time.Duration
 	MaxBackoff time.Duration
 	Jitter     time.Duration
+	// MaxAttempts bounds retry loops. Values <= 0 keep retrying until context cancellation.
+	MaxAttempts int
 }
 
 // RetryPolicy defines retry behavior for transient relay stages.
@@ -132,6 +129,13 @@ func RunWithClients(ctx context.Context, id Identity, consumer ConsumerClient, p
 	globalSem := make(chan struct{}, opts.MaxInFlightBatches)
 	committer := newCommitAggregator(opts.CommitMaxRecords)
 	defer dispatchWG.Wait()
+	baseRetry := retryContext{
+		log:        log,
+		errorsSeen: &errorsSeen,
+		metrics:    metrics,
+		id:         id,
+		opts:       opts,
+	}
 
 	var (
 		commitTicker  *time.Ticker
@@ -155,7 +159,11 @@ func RunWithClients(ctx context.Context, id Identity, consumer ConsumerClient, p
 
 			out := mapBatchToOutput(id, batch, opts)
 			var produceStart time.Time
-			if err := retryStage(ctx, log, "produce", opts.Retry.Produce, &errorsSeen, metrics, id, opts, func() error {
+			retry := baseRetry
+			retry.ctx = ctx
+			retry.stage = StageProduce
+			retry.cfg = opts.Retry.Produce
+			if err := retryStage(retry, func() error {
 				produceStart = time.Now()
 				return produceBatchAsync(ctx, producer, out)
 			}); err != nil {
@@ -185,53 +193,68 @@ func RunWithClients(ctx context.Context, id Identity, consumer ConsumerClient, p
 		case c := <-commitQ:
 			committer.add(c.partition, c.records...)
 			if committer.pendingRecords() >= opts.CommitMaxRecords {
-				if err := flushCommits(ctx, log, consumer, &errorsSeen, &msgsRelayed, metrics, id, opts, committer); err != nil {
+				commitRetry := baseRetry
+				commitRetry.ctx = ctx
+				if err := flushCommits(commitContext{
+					consumer:    consumer,
+					msgsRelayed: &msgsRelayed,
+					committer:   committer,
+					retry:       commitRetry,
+				}); err != nil {
 					return err
 				}
 			}
 		case <-commitTickerC:
-			if err := flushCommits(ctx, log, consumer, &errorsSeen, &msgsRelayed, metrics, id, opts, committer); err != nil {
+			commitRetry := baseRetry
+			commitRetry.ctx = ctx
+			if err := flushCommits(commitContext{consumer: consumer, msgsRelayed: &msgsRelayed, committer: committer, retry: commitRetry}); err != nil {
 				return err
 			}
 		case <-flushQ:
 			if committer.pendingRecords() >= opts.CommitMaxRecords {
-				if err := flushCommits(ctx, log, consumer, &errorsSeen, &msgsRelayed, metrics, id, opts, committer); err != nil {
+				commitRetry := baseRetry
+				commitRetry.ctx = ctx
+				if err := flushCommits(commitContext{consumer: consumer, msgsRelayed: &msgsRelayed, committer: committer, retry: commitRetry}); err != nil {
 					return err
 				}
 			}
 		default:
 			if err := ctx.Err(); err != nil {
-				_ = flushCommits(context.Background(), log, consumer, &errorsSeen, &msgsRelayed, metrics, id, opts, committer)
+				drainCtx, cancelDrain := context.WithTimeout(context.Background(), 5*time.Second)
+				commitRetry := baseRetry
+				commitRetry.ctx = drainCtx
+				_ = flushCommits(commitContext{consumer: consumer, msgsRelayed: &msgsRelayed, committer: committer, retry: commitRetry})
+				cancelDrain()
 				return err
 			}
 			pollStart := time.Now()
 			fetches := consumer.PollFetches(ctx)
 			pollSeconds := time.Since(pollStart).Seconds()
 			if err := fetches.Err(); err != nil {
-				metrics.AddConsumerSeconds(id, "idle", pollSeconds)
-				metrics.AddProducerSeconds(id, "idle", pollSeconds)
-				metrics.IncErrors(id, "poll")
+				metrics.AddConsumerSeconds(id, RelayStateIdle, pollSeconds)
+				metrics.AddProducerSeconds(id, RelayStateIdle, pollSeconds)
+				metrics.IncErrors(id, StagePoll)
 				errorsSeen.Add(1)
 				if !lastPollFailed {
-					log.Info("connection lost; reconnecting in background", "stage", "poll", "error_message", err.Error())
+					log.Info("connection lost; reconnecting in background", "stage", StagePoll, "error_message", err.Error())
 					lastPollFailed = true
 				}
 				continue
 			}
 			if lastPollFailed {
-				log.Info("connection restored; resuming relay", "stage", "poll")
+				log.Info("connection restored; resuming relay", "stage", StagePoll)
 				lastPollFailed = false
 			}
 			if fetches.NumRecords() == 0 {
-				metrics.AddConsumerSeconds(id, "idle", pollSeconds)
-				metrics.AddProducerSeconds(id, "idle", pollSeconds)
+				metrics.AddConsumerSeconds(id, RelayStateIdle, pollSeconds)
+				metrics.AddProducerSeconds(id, RelayStateIdle, pollSeconds)
 				continue
 			}
-			metrics.AddConsumerSeconds(id, "busy", pollSeconds)
+			metrics.AddConsumerSeconds(id, RelayStateBusy, pollSeconds)
 			batches, err := partitionBatches(id, fetches.Records(), opts.BatchSize)
 			if err != nil {
 				log.Warn("unexpected topic on fetch", "topic", errTopic(err))
-				metrics.IncErrors(id, "route")
+				metrics.IncErrors(id, StageRoute)
 				errorsSeen.Add(1)
 				return err
 			}

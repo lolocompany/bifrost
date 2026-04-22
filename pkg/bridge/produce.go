@@ -2,7 +2,6 @@ package bridge
 
 import (
 	"context"
-	"sync"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 )
@@ -44,29 +43,22 @@ func produceBatchAsync(ctx context.Context, producer ProducerClient, batch []*kg
 	if bp, ok := producer.(syncBatchProducer); ok {
 		return bp.ProduceSyncBatch(ctx, batch)
 	}
-	var (
-		wg      sync.WaitGroup
-		errOnce sync.Once
-		first   error
-	)
-	wg.Add(len(batch))
+	errCh := make(chan error, len(batch))
 	for _, record := range batch {
 		producer.Produce(ctx, record, func(_ *kgo.Record, err error) {
-			if err != nil {
-				errOnce.Do(func() { first = err })
-			}
-			wg.Done()
+			errCh <- err
 		})
 	}
-	done := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-		return first
-	case <-ctx.Done():
-		return ctx.Err()
+	var first error
+	for range batch {
+		select {
+		case err := <-errCh:
+			if err != nil && first == nil {
+				first = err
+			}
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
+	return first
 }

@@ -23,7 +23,7 @@ type Bridge struct {
 	// across group members.
 	Replicas int `yaml:"replicas"`
 	// BatchSize controls how many source records from the same topic-partition are produced and
-	// committed together. Omit or set 0 to use 1 (effectively disabling batching).
+	// committed together. Omit or set 0 to use 1.
 	BatchSize int `yaml:"batch_size"`
 	// MaxInFlightBatches caps concurrently produced batches per bridge replica. Omit or set 0 to
 	// use a conservative elastic default.
@@ -69,7 +69,7 @@ func (b *Bridge) validate(clusters map[string]Cluster) error {
 		return fmt.Errorf("replicas must be at most %d", MaxReplicas)
 	}
 	if b.BatchSize < 0 {
-		return errors.New("batch_size must be 0 (disabled) or at least 1")
+		return errors.New("batch_size must be 0 (default=1) or at least 1")
 	}
 	if b.MaxInFlightBatches < 1 || b.MaxInFlightBatches > 256 {
 		return errors.New("max_in_flight_batches must be between 1 and 256")

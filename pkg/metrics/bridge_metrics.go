@@ -97,17 +97,17 @@ func initBridgeSeries(m BridgeMetrics, bridges []config.Bridge) {
 			m.messages.WithLabelValues(v...).Add(0)
 		}
 		if m.errors != nil {
-			for _, stage := range []string{"poll", "produce", "commit", "route"} {
+			for _, stage := range []string{bridge.StagePoll, bridge.StageProduce, bridge.StageCommit, bridge.StageRoute} {
 				m.errors.WithLabelValues(append(append([]string(nil), v...), stage)...).Add(0)
 			}
 		}
 		if m.consumerSeconds != nil {
-			for _, state := range []string{"busy", "idle"} {
+			for _, state := range []string{bridge.RelayStateBusy, bridge.RelayStateIdle} {
 				m.consumerSeconds.WithLabelValues(append(append([]string(nil), v...), state)...).Add(0)
 			}
 		}
 		if m.producerSeconds != nil {
-			for _, state := range []string{"busy", "idle"} {
+			for _, state := range []string{bridge.RelayStateBusy, bridge.RelayStateIdle} {
 				m.producerSeconds.WithLabelValues(append(append([]string(nil), v...), state)...).Add(0)
 			}
 		}

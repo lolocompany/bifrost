@@ -11,6 +11,7 @@ import (
 	"github.com/lolocompany/bifrost/pkg/bridge"
 	"github.com/lolocompany/bifrost/pkg/config"
 	"github.com/lolocompany/bifrost/pkg/metrics"
+	"github.com/twmb/franz-go/pkg/kgo"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -44,34 +45,9 @@ func Run(ctx context.Context, cfg config.Config) error {
 	}
 
 	snap := probeSystemSnapshot()
-	configReplicas := make([]int, len(cfg.Bridges))
-	partitions := make([]int, len(cfg.Bridges))
-	for i, bridgeCfg := range cfg.Bridges {
-		fromCluster := cfg.Clusters[bridgeCfg.From.Cluster]
-		if bridgeCfg.PartitionsPreserved() {
-			sourcePartitions, err := sourceTopicPartitionCount(ctx, bridgeCfg, fromCluster, producersByCluster, metricsRegistry.BrokerMetrics)
-			if err != nil {
-				return fmt.Errorf("bridge %q source topic partitions: %w", bridgeCfg.Name, err)
-			}
-			destPartitions, err := topicPartitionCount(ctx, bridgeCfg.To.Cluster, bridgeCfg.To.Topic, cfg.Clusters[bridgeCfg.To.Cluster], producersByCluster, metricsRegistry.BrokerMetrics)
-			if err != nil {
-				return fmt.Errorf("bridge %q destination topic partitions: %w", bridgeCfg.Name, err)
-			}
-			if err := ValidatePreservedPartitionCounts(bridgeCfg, sourcePartitions, destPartitions); err != nil {
-				return err
-			}
-		}
-
-		configReplicas[i] = bridgeCfg.Replicas
-		if bridgeCfg.Replicas != 0 {
-			partitions[i] = 0
-			continue
-		}
-		n, err := sourceTopicPartitionCount(ctx, bridgeCfg, fromCluster, producersByCluster, metricsRegistry.BrokerMetrics)
-		if err != nil {
-			return fmt.Errorf("bridge %q source topic partitions: %w", bridgeCfg.Name, err)
-		}
-		partitions[i] = n
+	configReplicas, partitions, err := collectReplicaInputs(ctx, cfg, producersByCluster, metricsRegistry.BrokerMetrics)
+	if err != nil {
+		return err
 	}
 
 	effReplicas, plan, err := PlanReplicaCounts(configReplicas, partitions, snap)
@@ -139,6 +115,19 @@ func Run(ctx context.Context, cfg config.Config) error {
 	}
 
 	eg, ctx := errgroup.WithContext(ctx)
+	if serverErr := metricsRegistry.ServerErr(); serverErr != nil {
+		eg.Go(func() error {
+			select {
+			case err := <-serverErr:
+				if err == nil {
+					return nil
+				}
+				return fmt.Errorf("metrics server exited: %w", err)
+			case <-ctx.Done():
+				return nil
+			}
+		})
+	}
 	for i, bridgeCfg := range cfg.Bridges {
 		n := effReplicas[i]
 		for replica := range n {
@@ -180,6 +169,43 @@ func Run(ctx context.Context, cfg config.Config) error {
 		}
 	}
 	return eg.Wait()
+}
+
+func collectReplicaInputs(
+	ctx context.Context,
+	cfg config.Config,
+	producersByCluster map[string]*kgo.Client,
+	brokerMetrics metrics.BrokerMetrics,
+) ([]int, []int, error) {
+	configReplicas := make([]int, len(cfg.Bridges))
+	partitions := make([]int, len(cfg.Bridges))
+	sourcePartitionsByBridge := make(map[string]int, len(cfg.Bridges))
+	for i, bridgeCfg := range cfg.Bridges {
+		fromCluster := cfg.Clusters[bridgeCfg.From.Cluster]
+		sourcePartitions, ok := sourcePartitionsByBridge[bridgeCfg.Name]
+		if !ok {
+			n, err := sourceTopicPartitionCount(ctx, bridgeCfg, fromCluster, producersByCluster, brokerMetrics)
+			if err != nil {
+				return nil, nil, fmt.Errorf("bridge %q source topic partitions: %w", bridgeCfg.Name, err)
+			}
+			sourcePartitions = n
+			sourcePartitionsByBridge[bridgeCfg.Name] = n
+		}
+		if bridgeCfg.PartitionsPreserved() {
+			destPartitions, err := topicPartitionCount(ctx, bridgeCfg.To.Cluster, bridgeCfg.To.Topic, cfg.Clusters[bridgeCfg.To.Cluster], producersByCluster, brokerMetrics)
+			if err != nil {
+				return nil, nil, fmt.Errorf("bridge %q destination topic partitions: %w", bridgeCfg.Name, err)
+			}
+			if err := ValidatePreservedPartitionCounts(bridgeCfg, sourcePartitions, destPartitions); err != nil {
+				return nil, nil, err
+			}
+		}
+		configReplicas[i] = bridgeCfg.Replicas
+		if bridgeCfg.Replicas == 0 {
+			partitions[i] = sourcePartitions
+		}
+	}
+	return configReplicas, partitions, nil
 }
 
 // ValidatePreservedPartitionCounts checks whether a bridge can preserve source partition IDs on

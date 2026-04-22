@@ -54,18 +54,10 @@ func newProducer(ctx context.Context, clusterName string, clusterCfg config.Clus
 		return nil, err
 	}
 	logKafkaClientDebug(clusterName, "producer", &clusterCfg)
-
-	pingCtx, cancelPing, err := kafka.WithPingTimeout(ctx, &clusterCfg)
-	if err != nil {
-		producer.Close()
-		return nil, fmt.Errorf("ping: %w", err)
-	}
-	if err := kafka.PingBroker(pingCtx, producer); err != nil {
-		cancelPing()
+	if err := pingKafkaClient(ctx, producer, &clusterCfg); err != nil {
 		producer.Close()
 		return nil, fmt.Errorf("broker unreachable: %w", err)
 	}
-	cancelPing()
 
 	slog.Debug("kafka cluster reachable", "cluster", clusterName, "client_role", "producer")
 	return producer, nil
@@ -83,37 +75,21 @@ func newConsumer(ctx context.Context, bridgeCfg config.Bridge, fromCluster confi
 		return nil, fmt.Errorf("bridge %q consumer: %w", bridgeCfg.Name, err)
 	}
 	logKafkaClientDebug(bridgeCfg.From.Cluster, "consumer", &fromCluster)
-
-	pingCtx, cancelPing, err := kafka.WithPingTimeout(ctx, &fromCluster)
-	if err != nil {
-		consumer.Close()
-		return nil, fmt.Errorf("bridge %q consumer ping: %w", bridgeCfg.Name, err)
-	}
-	if err := kafka.PingBroker(pingCtx, consumer); err != nil {
-		cancelPing()
+	if err := pingKafkaClient(ctx, consumer, &fromCluster); err != nil {
 		consumer.Close()
 		return nil, fmt.Errorf("bridge %q from cluster %q: broker unreachable: %w", bridgeCfg.Name, bridgeCfg.From.Cluster, err)
 	}
-	cancelPing()
 
 	slog.Debug("kafka cluster reachable", "cluster", bridgeCfg.From.Cluster, "bridge", bridgeCfg.Name, "client_role", "consumer")
 	return consumer, nil
 }
 
 func topicPartitionCount(ctx context.Context, clusterName, topic string, clusterCfg config.Cluster, producersByCluster map[string]*kgo.Client, brokerMetrics metrics.BrokerMetrics) (int, error) {
-	client := producersByCluster[clusterName]
-	closeAfter := false
-	if client == nil {
-		tmp, err := newProducer(ctx, clusterName, clusterCfg, brokerMetrics)
-		if err != nil {
-			return 0, fmt.Errorf("cluster %q: %w", clusterName, err)
-		}
-		client = tmp
-		closeAfter = true
+	client, closeClient, err := resolveProducerForCluster(ctx, clusterName, clusterCfg, producersByCluster, brokerMetrics)
+	if err != nil {
+		return 0, fmt.Errorf("cluster %q: %w", clusterName, err)
 	}
-	if closeAfter {
-		defer client.Close()
-	}
+	defer closeClient()
 	n, err := kafka.TopicPartitionCount(ctx, client, topic)
 	if err != nil {
 		return 0, fmt.Errorf("topic %q on cluster %q: %w", topic, clusterName, err)
@@ -136,22 +112,13 @@ func ensureTopicsForCluster(
 	if !clusterCfg.AutoCreateTopics {
 		return nil
 	}
-
-	client := producersByCluster[clusterName]
-	closeAfter := false
-	if client == nil {
-		tmp, err := newProducer(ctx, clusterName, clusterCfg, brokerMetrics)
-		if err != nil {
-			return fmt.Errorf("cluster %q auto_create_topics: %w", clusterName, err)
-		}
-		client = tmp
-		closeAfter = true
+	client, closeClient, err := resolveProducerForCluster(ctx, clusterName, clusterCfg, producersByCluster, brokerMetrics)
+	if err != nil {
+		return fmt.Errorf("cluster %q auto_create_topics: %w", clusterName, err)
 	}
-	if closeAfter {
-		defer client.Close()
-	}
+	defer closeClient()
 
-	created, err := kafka.EnsureTopics(ctx, client, clusterCfg.AutoCreateTopics, topics)
+	created, err := kafka.EnsureTopics(ctx, client, true, topics)
 	if err != nil {
 		return fmt.Errorf("cluster %q: ensure topics: %w", clusterName, err)
 	}
@@ -200,6 +167,35 @@ func kafkaClientHooks(broker metrics.BrokerMetrics, cluster string) []kgo.Hook {
 
 func tcpDialRecorder(broker metrics.BrokerMetrics, cluster string) func(float64) {
 	return broker.TCPDialRecorder(cluster)
+}
+
+func pingKafkaClient(ctx context.Context, client *kgo.Client, clusterCfg *config.Cluster) error {
+	pingCtx, cancelPing, err := kafka.WithPingTimeout(ctx, clusterCfg)
+	if err != nil {
+		return fmt.Errorf("ping timeout: %w", err)
+	}
+	defer cancelPing()
+	if err := kafka.PingBroker(pingCtx, client); err != nil {
+		return err
+	}
+	return nil
+}
+
+func resolveProducerForCluster(
+	ctx context.Context,
+	clusterName string,
+	clusterCfg config.Cluster,
+	producersByCluster map[string]*kgo.Client,
+	brokerMetrics metrics.BrokerMetrics,
+) (*kgo.Client, func(), error) {
+	if client := producersByCluster[clusterName]; client != nil {
+		return client, func() {}, nil
+	}
+	client, err := newProducer(ctx, clusterName, clusterCfg, brokerMetrics)
+	if err != nil {
+		return nil, nil, err
+	}
+	return client, func() { client.Close() }, nil
 }
 
 // BridgeRunOptions builds bridge.RunOptions from validated bridge and cluster config.
@@ -278,6 +274,18 @@ func logKafkaClientDebug(clusterName, clientRole string, env *config.Cluster) {
 	if !slog.Default().Enabled(context.Background(), slog.LevelDebug) {
 		return
 	}
+	attrs := baseKafkaClientAttrs(clusterName, clientRole, env)
+	switch clientRole {
+	case "consumer":
+		attrs = append(attrs, consumerKafkaClientAttrs(env)...)
+	case "producer":
+		attrs = append(attrs, producerKafkaClientAttrs(env)...)
+	}
+
+	slog.Debug("kafka client config", attrs...)
+}
+
+func baseKafkaClientAttrs(clusterName, clientRole string, env *config.Cluster) []any {
 	attrs := []any{
 		"cluster", clusterName,
 		"client_role", clientRole,
@@ -294,31 +302,33 @@ func logKafkaClientDebug(clusterName, clientRole string, env *config.Cluster) {
 	if ro := strings.TrimSpace(env.Client.RequestTimeoutOverhead); ro != "" {
 		attrs = append(attrs, "client_request_timeout_overhead", ro)
 	}
+	return attrs
+}
 
-	switch clientRole {
-	case "consumer":
-		attrs = append(attrs, "consumer_isolation_level", env.Consumer.EffectiveIsolationLevel())
-		if env.Consumer.FetchMaxBytes != nil {
-			attrs = append(attrs, "consumer_fetch_max_bytes", *env.Consumer.FetchMaxBytes)
-		}
-		if env.Consumer.FetchMaxPartitionBytes != nil {
-			attrs = append(attrs, "consumer_fetch_max_partition_bytes", *env.Consumer.FetchMaxPartitionBytes)
-		}
-		if w := strings.TrimSpace(env.Consumer.FetchMaxWait); w != "" {
-			attrs = append(attrs, "consumer_fetch_max_wait", w)
-		}
-	case "producer":
-		attrs = append(attrs, "producer_required_acks", env.Producer.EffectiveRequiredAcks())
-		if c := strings.TrimSpace(env.Producer.BatchCompression); c != "" {
-			attrs = append(attrs, "producer_batch_compression", c)
-		}
-		if env.Producer.BatchMaxBytes != nil {
-			attrs = append(attrs, "producer_batch_max_bytes", *env.Producer.BatchMaxBytes)
-		}
-		if l := strings.TrimSpace(env.Producer.Linger); l != "" {
-			attrs = append(attrs, "producer_linger", l)
-		}
+func consumerKafkaClientAttrs(env *config.Cluster) []any {
+	attrs := []any{"consumer_isolation_level", env.Consumer.EffectiveIsolationLevel()}
+	if env.Consumer.FetchMaxBytes != nil {
+		attrs = append(attrs, "consumer_fetch_max_bytes", *env.Consumer.FetchMaxBytes)
 	}
+	if env.Consumer.FetchMaxPartitionBytes != nil {
+		attrs = append(attrs, "consumer_fetch_max_partition_bytes", *env.Consumer.FetchMaxPartitionBytes)
+	}
+	if w := strings.TrimSpace(env.Consumer.FetchMaxWait); w != "" {
+		attrs = append(attrs, "consumer_fetch_max_wait", w)
+	}
+	return attrs
+}
 
-	slog.Debug("kafka client config", attrs...)
+func producerKafkaClientAttrs(env *config.Cluster) []any {
+	attrs := []any{"producer_required_acks", env.Producer.EffectiveRequiredAcks()}
+	if c := strings.TrimSpace(env.Producer.BatchCompression); c != "" {
+		attrs = append(attrs, "producer_batch_compression", c)
+	}
+	if env.Producer.BatchMaxBytes != nil {
+		attrs = append(attrs, "producer_batch_max_bytes", *env.Producer.BatchMaxBytes)
+	}
+	if l := strings.TrimSpace(env.Producer.Linger); l != "" {
+		attrs = append(attrs, "producer_linger", l)
+	}
+	return attrs
 }

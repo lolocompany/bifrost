@@ -59,7 +59,16 @@ var promLabelNameRE = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
 var metricVariableLabels = map[string]struct{}{
 	"bridge": {}, "from_kafka_cluster": {}, "from_topic": {}, "to_kafka_cluster": {}, "to_topic": {},
-	"stage": {}, "kafka_cluster": {}, "tls_version": {}, "le": {}, "quantile": {},
+	"stage": {}, "state": {}, "kafka_cluster": {}, "tls_version": {}, "le": {}, "quantile": {},
+}
+
+// MetricVariableLabels returns a copy of built-in variable labels used by bifrost metric vectors.
+func MetricVariableLabels() map[string]struct{} {
+	out := make(map[string]struct{}, len(metricVariableLabels))
+	for k := range metricVariableLabels {
+		out[k] = struct{}{}
+	}
+	return out
 }
 
 func validateMetricsExtraLabels(labels map[string]string) error {

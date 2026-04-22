@@ -101,13 +101,12 @@ func parseDurationIfSet(field, s string) (d time.Duration, set bool, err error) 
 }
 
 func parseOptionalDuration(field, s string) (time.Duration, error) {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return 0, nil
-	}
-	d, err := time.ParseDuration(s)
+	d, ok, err := ParseOptionalDuration(field, s)
 	if err != nil {
-		return 0, fmt.Errorf("%s: parse duration: %w", field, err)
+		return 0, err
+	}
+	if !ok {
+		return 0, nil
 	}
 	return d, nil
 }
@@ -160,13 +159,13 @@ func (c *ConsumerSettings) validate() error {
 }
 
 func (p *ProducerSettings) validate() error {
-	if err := validRequiredAcks(p.RequiredAcks); err != nil {
+	if _, err := NormalizeRequiredAcks(p.RequiredAcks); err != nil {
 		return err
 	}
 	if p.BatchMaxBytes != nil && *p.BatchMaxBytes <= 0 {
 		return errors.New("batch_max_bytes must be positive when set")
 	}
-	if err := validateCompressionName(p.BatchCompression); err != nil {
+	if _, err := NormalizeCompression(p.BatchCompression); err != nil {
 		return err
 	}
 	for _, pair := range []struct {
@@ -227,24 +226,6 @@ func (r RetrySettings) Durations(field string, defaults RetryDurations) (RetryDu
 	}
 
 	return out, nil
-}
-
-func validRequiredAcks(s string) error {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "", "all", "-1", "none", "0", "leader", "1":
-		return nil
-	default:
-		return fmt.Errorf("required_acks: unsupported %q (use all, leader, none)", s)
-	}
-}
-
-func validateCompressionName(s string) error {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "", "snappy", "zstd", "lz4", "gzip", "none":
-		return nil
-	default:
-		return fmt.Errorf("batch_compression: unsupported %q (use snappy, zstd, lz4, gzip, none)", s)
-	}
 }
 
 func (t *TLS) validate() error {
