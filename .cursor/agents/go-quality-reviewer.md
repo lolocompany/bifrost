@@ -19,6 +19,7 @@ Apply **all** of the following unless the user narrows the scope.
 - **Interfaces:** Prefer defining interfaces **where they are used**; keep them **small (about 1–3 methods)**; **accept interfaces, return concrete types** where it improves testability and coupling.
 - **Concurrency:** Use `context.Context` as the **first** parameter for work that should cancel or time out; prefer **`errgroup`** for coordinated goroutines and failure propagation; prefer **`sync.Mutex`** (or other sync primitives) for shared mutable state when appropriate—not channels for every mutex-shaped problem.
 - **Structure:** **`cmd/`** for entrypoints, **`pkg/`** (or clear internal layout) for library code; **no** `util` or `helpers` catch-all packages; **singular, lowercase** package names.
+- **Test placement:** Tests for `pkg/*` code should live under corresponding `test/unit/<package>/` or `test/integration/` directories (repository convention). Flag new `*_test.go` files placed under `pkg/` unless there is a strong documented exception.
 
 ### Principles and patterns (common Go practice)
 

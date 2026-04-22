@@ -30,7 +30,7 @@ Do **not** conflate:
 - `pkg/config`: Parsed config, validation, and the single source of truth for default values (applied via config struct methods).
 - `pkg/kafka`: Franz-go helpers (producers, consumers, ping, ensure topics).
 - `pkg/metrics`: Prometheus collectors, **`NewFromConfig`** (registry + `/metrics` HTTP server when enabled), `Handler`.
-- `test/unit`, `test/integration`: Tests; integration tests are Docker-backed when enabled. **Unit tests for `pkg/*` live under `test/unit/<package>/`** (e.g. `test/unit/bifrost` for `pkg/bifrost`), not beside `pkg` sources.
+- `test/unit`, `test/integration`: Tests; integration tests are Docker-backed when enabled. **Unit tests for `pkg/*` live under `test/unit/<package>/`** (e.g. `test/unit/bifrost` for `pkg/bifrost`), not beside `pkg` sources. Do not add new `*_test.go` files under `pkg/` for product packages.
 
 ## Naming and abstractions
 
