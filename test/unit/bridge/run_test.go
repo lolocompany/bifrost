@@ -200,6 +200,37 @@ func TestRunWithClients_retriesCommitErrorInPlace(t *testing.T) {
 	}
 }
 
+func TestRunWithClients_stopsCommitRetriesAtMaxAttempts(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	m := &testMetricsReporter{}
+	consumer := &fakeConsumer{
+		polls: []fakeFetches{{
+			records: []*kgo.Record{{Topic: "from-topic", Value: []byte("payload")}},
+		}},
+		commitErr: errors.New("permanent commit failure"),
+	}
+	producer := &fakeProducer{}
+
+	err := bridge.RunWithClients(ctx, testIdentity(), consumer, producer, m, testRunOptions(bridge.RunOptions{
+		Retry: bridge.RetryPolicy{
+			Commit: bridge.RetryConfig{
+				MinBackoff:  10 * time.Millisecond,
+				MaxBackoff:  10 * time.Millisecond,
+				MaxAttempts: 2,
+			},
+		},
+		Sleep:  func(context.Context, time.Duration) error { return nil },
+		Jitter: func(time.Duration) time.Duration { return 0 },
+	}))
+	if err == nil {
+		t.Fatal("expected commit retry failure")
+	}
+	if consumer.commitCalls != 2 {
+		t.Fatalf("commit calls = %d, want 2 max attempts", consumer.commitCalls)
+	}
+}
+
 func TestRunWithClients_batchesByPartitionAndPreservesSourcePartition(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
