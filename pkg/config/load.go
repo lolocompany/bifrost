@@ -38,13 +38,3 @@ func Parse(data []byte) (*Config, error) {
 	}
 	return &cfg, nil
 }
-
-// MustParse calls Parse and panics if the YAML is invalid.
-func MustParse(data []byte) *Config {
-	cfg, err := Parse(data)
-	if err != nil {
-		panic(fmt.Sprintf("bifrost: invalid config: %v", err))
-	}
-	return cfg
-}
-

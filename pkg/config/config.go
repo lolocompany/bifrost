@@ -2,7 +2,7 @@
 //
 // Parse and Load return an error when required fields are missing or invalid. Defaults are applied
 // centrally in this package via Config.ApplyDefaults and nested struct methods.
-// MustParse and MustLoad panic instead of returning an error—use only when startup must abort on bad config.
+// MustLoad panics instead of returning an error; prefer Parse/Load for regular call paths.
 package config
 
 // Config is the top-level configuration for bifrost.

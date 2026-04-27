@@ -258,19 +258,17 @@ logging:
 	}
 }
 
-func TestMustParse_panicsOnInvalid(t *testing.T) {
+func TestParse_returnsErrorOnInvalid(t *testing.T) {
 	const yamlDoc = `
 clusters:
   east:
     brokers: ["127.0.0.1:9092"]
 bridges: []
 `
-	defer func() {
-		if recover() == nil {
-			t.Fatal("expected panic from MustParse on invalid config")
-		}
-	}()
-	config.MustParse([]byte(yamlDoc))
+	_, err := config.Parse([]byte(yamlDoc))
+	if err == nil {
+		t.Fatal("expected parse error from invalid config")
+	}
 }
 
 func TestEffectiveConsumerGroup_explicit(t *testing.T) {
