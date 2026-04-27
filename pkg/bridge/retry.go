@@ -89,26 +89,37 @@ func handleRetryFailure(rc retryContext, attempt int, opErr error) (int, error) 
 }
 
 func retryDelay(attempt int, cfg RetryConfig, jitterFn func(time.Duration) time.Duration) (time.Duration, time.Duration, time.Duration) {
-	base := cfg.MinBackoff
+	return ComputeRetryDelay(attempt, cfg.MinBackoff, cfg.MaxBackoff, cfg.Jitter, jitterFn)
+}
+
+// ComputeRetryDelay returns exponential backoff and bounded jitter for retry loops.
+func ComputeRetryDelay(
+	attempt int,
+	minBackoff time.Duration,
+	maxBackoff time.Duration,
+	maxJitter time.Duration,
+	jitterFn func(time.Duration) time.Duration,
+) (time.Duration, time.Duration, time.Duration) {
+	base := minBackoff
 	for i := 1; i < attempt; i++ {
-		if base >= cfg.MaxBackoff {
-			base = cfg.MaxBackoff
+		if base >= maxBackoff {
+			base = maxBackoff
 			break
 		}
-		if base > cfg.MaxBackoff/2 {
-			base = cfg.MaxBackoff
+		if base > maxBackoff/2 {
+			base = maxBackoff
 			break
 		}
 		base *= 2
 	}
 	jitter := time.Duration(0)
-	if cfg.Jitter > 0 && jitterFn != nil {
-		jitter = jitterFn(cfg.Jitter)
+	if maxJitter > 0 && jitterFn != nil {
+		jitter = jitterFn(maxJitter)
 		if jitter < 0 {
 			jitter = 0
 		}
-		if jitter > cfg.Jitter {
-			jitter = cfg.Jitter
+		if jitter > maxJitter {
+			jitter = maxJitter
 		}
 	}
 	return base, jitter, base + jitter
