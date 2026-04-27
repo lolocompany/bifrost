@@ -67,7 +67,13 @@ Extract helpers only when the same logic runs multiple times with different para
 ### Errors and metrics
 
 - Wrap errors with `fmt.Errorf("...: %w", err)`; use `errors.Is` for `context.Canceled` where appropriate.
+- Prefer explicit error-return APIs in `pkg/*`; avoid panic-oriented helpers in library code.
 - Metric naming follows README: application metrics prefixed `bifrost_`; relay metrics `bifrost_relay_*`. See `docs/metrics.md` for detail.
+
+### Quality gates
+
+- Keep Go style/lint checks aligned with repository CI: `make lint-ci`, `make test-unit`, `make test-race`.
+- If you change linter policy, update `.golangci.yml`, CI workflow(s), and `docs/codequality.md` in the same effort.
 
 ## What to read before large changes
 

@@ -153,9 +153,12 @@ If you omit these blocks, bifrost uses the same defaults shown above. Commit ret
 | `make test-integration` | Run Docker-backed integration tests (`BIFROST_INTEGRATION=1`) |
 | `make bench` | Default subset; **one Redpanda container per benchmark** (isolated; slower than shared broker) |
 | `make lint` | Run `go vet`, `go mod verify`, `govulncheck`, `gosec`, and `golangci-lint` |
+| `make lint-ci` | Run CI lint gate (`lint` + `staticcheck` + `errcheck` + `revive`) |
 | `make codequality-scorecard` | Generate codequality scorecard (`reports/codequality/scorecard.{json,md}`) |
 | `make codequality-baseline` | Capture/refresh codequality baseline for regression gates |
 | `make codequality-gate` | Enforce codequality regression + severe outlier gates |
+| `make test-unit` | Run unit tests (`./test/unit/...`) |
+| `make test-race` | Run unit tests with race detector (`./test/unit/...`) |
 | `make format` | Run `go fmt` and `gofmt` |
 
 Contributor and agent-oriented notes on layout and naming: `[docs/AGENTS.md](./docs/AGENTS.md)`.

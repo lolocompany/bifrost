@@ -93,7 +93,7 @@ Prometheus/Alloy pipelines can also be configured to add or rewrite labels via r
 - any label matching `^__.*__$`
 
 At startup, bifrost logs a warning if any configured `metrics.extra_labels` keys match the reserved
-scrape list above.
+scrape list above or built-in bifrost variable label keys.
 
 ## kafka
 

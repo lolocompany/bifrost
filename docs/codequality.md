@@ -1,6 +1,7 @@
 # Codequality Policy
 
 This document defines maintainability and complexity targets for repository code quality.
+It also defines the Go style and static-analysis baseline used in CI.
 
 ## Why these checks
 
@@ -42,6 +43,24 @@ Any justified exception should include:
   - `reports/codequality/scorecard.md`
   - `reports/codequality/baseline.json`
   - `reports/codequality/snapshots/*.json`
+
+## Go style and static-analysis baseline
+
+The repository enforces a lint baseline aligned with the Uber Go style guidance:
+
+- `golangci-lint` with repository config (`.golangci.yml`)
+- `go vet`
+- `staticcheck`
+- `errcheck`
+- `revive`
+
+Local command:
+
+- `make lint-ci`
+
+CI command path:
+
+- `.github/workflows/go-quality.yml` runs `make lint-ci`, `make test-unit`, and `make test-race`.
 
 ## Alignment decision rules
 
