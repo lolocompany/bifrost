@@ -85,9 +85,6 @@ build-release:
 	BIFROST_BUILD_TIME=$(BUILD_TIME) RELEASE_NAME=local-snapshot RELEASE_BODY='Local snapshot (not a production release).' goreleaser release --snapshot --clean --skip=publish,validate --config goreleaser/.goreleaser.yaml
 
 test:
-	$(MAKE) test-unit
-
-test-unit:
 	go test -shuffle=on -timeout 120s ./test/unit/...
 
 test-race:
@@ -95,9 +92,6 @@ test-race:
 
 test-integration:
 	BIFROST_INTEGRATION=1 go test -shuffle=on -timeout 120s ./test/integration/...
-
-test-process-integration:
-	BIFROST_INTEGRATION=1 go test -shuffle=on -timeout 180s ./test/integration/...
 
 test-regression:
 	BIFROST_INTEGRATION=1 go test -shuffle=on -timeout 300s ./test/regression/...
