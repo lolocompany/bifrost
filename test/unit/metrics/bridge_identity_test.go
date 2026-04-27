@@ -8,6 +8,7 @@ import (
 )
 
 func TestBridgeIdentityLabelCountMatchesVec(t *testing.T) {
+	labelNames := bridge.LabelNames()
 	id := bridge.IdentityFrom(bifrostconfig.Bridge{
 		Name: "b1",
 		From: bifrostconfig.BridgeTarget{
@@ -19,13 +20,13 @@ func TestBridgeIdentityLabelCountMatchesVec(t *testing.T) {
 			Topic:   "t.out",
 		},
 	})
-	if len(bridge.LabelNames) != len(id.LabelValues()) {
-		t.Fatalf("LabelNames has %d names but LabelValues() has %d values", len(bridge.LabelNames), len(id.LabelValues()))
+	if len(labelNames) != len(id.LabelValues()) {
+		t.Fatalf("LabelNames has %d names but LabelValues() has %d values", len(labelNames), len(id.LabelValues()))
 	}
 	wantNames := []string{"bridge", "from_kafka_cluster", "from_topic", "to_kafka_cluster", "to_topic"}
 	for i, want := range wantNames {
-		if bridge.LabelNames[i] != want {
-			t.Fatalf("LabelNames[%d] = %q, want %q", i, bridge.LabelNames[i], want)
+		if labelNames[i] != want {
+			t.Fatalf("LabelNames[%d] = %q, want %q", i, labelNames[i], want)
 		}
 	}
 }

@@ -217,7 +217,7 @@ func allocateAutoFromWeights(weights []int, budget int) []int {
 
 	// Fix any drift from integer caps (rest might exceed distributable slots).
 	for intSum(out) > budget {
-		reduceOneTowardsWeight(out, weights)
+		reduceOneTowardsWeight(out)
 	}
 	for intSum(out) < budget {
 		growTowardsWeight(out, weights)
@@ -233,7 +233,7 @@ func intSum(xs []int) int {
 	return s
 }
 
-func reduceOneTowardsWeight(out, weights []int) {
+func reduceOneTowardsWeight(out []int) {
 	for i := len(out) - 1; i >= 0; i-- {
 		if out[i] > 1 {
 			out[i]--

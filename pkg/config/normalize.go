@@ -29,11 +29,7 @@ func (c *Config) normalize() error {
 		return err
 	}
 	c.Logging.normalize()
-	if err := normalizeStringMap(c.Logging.ExtraFields, "logging.extra_fields"); err != nil {
-		return err
-	}
-
-	return nil
+	return normalizeStringMap(c.Logging.ExtraFields, "logging.extra_fields")
 }
 
 func (b *Bridge) normalize() {

@@ -54,7 +54,7 @@ func NewFromConfig(cfg config.Config) (MetricsRegistry, error) {
 		slog.Warn(
 			"metrics.extra_labels include reserved scrape labels or built-in metric variable labels; this may cause exact or semantic label collisions",
 			"conflicting_extra_labels", conflicts,
-			"reserved_scrape_labels", append(sortedLabelSetKeys(reservedScrapeLabels), reservedInternalLabelRE.String()),
+			"reserved_scrape_labels", append(sortedLabelSetKeys(reservedScrapeLabels()), reservedInternalLabelRE.String()),
 			"built_in_metric_labels", sortedLabelSetKeys(config.MetricVariableLabels()),
 		)
 	}
@@ -105,24 +105,33 @@ func wrapRegistererWithExtraLabels(reg *prometheus.Registry, extraLabels map[str
 	return prometheus.WrapRegistererWith(labels, reg)
 }
 
-var reservedScrapeLabels = map[string]struct{}{
+var scrapeReservedLabels = map[string]struct{}{
 	"job": {}, "instance": {}, "cluster": {}, "namespace": {}, "pod": {}, "service": {},
 }
 
 var reservedInternalLabelRE = regexp.MustCompile(`^__.*__$`)
+
+func reservedScrapeLabels() map[string]struct{} {
+	out := make(map[string]struct{}, len(scrapeReservedLabels))
+	for key := range scrapeReservedLabels {
+		out[key] = struct{}{}
+	}
+	return out
+}
 
 func conflictingReservedOrBuiltInLabels(extraLabels map[string]string) []string {
 	if len(extraLabels) == 0 {
 		return nil
 	}
 	builtInLabels := config.MetricVariableLabels()
+	reservedLabels := reservedScrapeLabels()
 	conflicts := make([]string, 0, len(extraLabels))
 	for key := range extraLabels {
 		name := strings.TrimSpace(key)
 		if name == "" {
 			continue
 		}
-		if _, ok := reservedScrapeLabels[name]; ok || reservedInternalLabelRE.MatchString(name) {
+		if _, ok := reservedLabels[name]; ok || reservedInternalLabelRE.MatchString(name) {
 			conflicts = append(conflicts, name)
 			continue
 		}
@@ -176,8 +185,10 @@ func startMetricsHTTPServer(cfg config.Metrics, reg *prometheus.Registry) (func(
 		return nil, nil, fmt.Errorf("metrics listen: %w", err)
 	}
 	errCh := make(chan error, 1)
+	done := make(chan struct{})
 
 	go func() {
+		defer close(done)
 		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("metrics server exited", "error_message", err.Error())
 			select {
@@ -193,6 +204,11 @@ func startMetricsHTTPServer(cfg config.Metrics, reg *prometheus.Registry) (func(
 		defer cancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			slog.Error("metrics shutdown", "error_message", err.Error())
+		}
+		select {
+		case <-done:
+		case <-time.After(500 * time.Millisecond):
+			slog.Warn("metrics shutdown wait timed out")
 		}
 	}, errCh, nil
 }

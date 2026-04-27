@@ -139,10 +139,10 @@ func sleepContext(ctx context.Context, d time.Duration) error {
 	}
 }
 
-func randomJitter(max time.Duration) time.Duration {
-	if max <= 0 {
+func randomJitter(maxDuration time.Duration) time.Duration {
+	if maxDuration <= 0 {
 		return 0
 	}
 	// #nosec G404 -- retry jitter only needs statistical spread, not cryptographic randomness.
-	return time.Duration(rand.Int64N(int64(max) + 1))
+	return time.Duration(rand.Int64N(int64(maxDuration) + 1))
 }

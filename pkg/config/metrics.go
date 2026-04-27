@@ -57,15 +57,15 @@ func (m *Metrics) validate() error {
 
 var promLabelNameRE = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
-var metricVariableLabels = map[string]struct{}{
+var builtInMetricVariableLabels = map[string]struct{}{
 	"bridge": {}, "from_kafka_cluster": {}, "from_topic": {}, "to_kafka_cluster": {}, "to_topic": {},
 	"stage": {}, "state": {}, "kafka_cluster": {}, "tls_version": {}, "le": {}, "quantile": {},
 }
 
 // MetricVariableLabels returns a copy of built-in variable labels used by bifrost metric vectors.
 func MetricVariableLabels() map[string]struct{} {
-	out := make(map[string]struct{}, len(metricVariableLabels))
-	for k := range metricVariableLabels {
+	out := make(map[string]struct{}, len(builtInMetricVariableLabels))
+	for k := range builtInMetricVariableLabels {
 		out[k] = struct{}{}
 	}
 	return out
@@ -80,7 +80,7 @@ func validateMetricsExtraLabels(labels map[string]string) error {
 		if !promLabelNameRE.MatchString(name) {
 			return fmt.Errorf("label %q: invalid Prometheus label name", k)
 		}
-		if _, conflict := metricVariableLabels[name]; conflict {
+		if _, conflict := builtInMetricVariableLabels[name]; conflict {
 			return fmt.Errorf("label %q conflicts with built-in metric variable labels", k)
 		}
 		if strings.TrimSpace(v) == "" {

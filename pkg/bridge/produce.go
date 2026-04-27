@@ -49,16 +49,16 @@ func produceBatchAsync(ctx context.Context, producer ProducerClient, batch []*kg
 			errCh <- err
 		})
 	}
-	var first error
+	var firstErr error
 	for range batch {
 		select {
 		case err := <-errCh:
-			if err != nil && first == nil {
-				first = err
+			if err != nil && firstErr == nil {
+				firstErr = err
 			}
 		case <-ctx.Done():
 			return ctx.Err()
 		}
 	}
-	return first
+	return firstErr
 }

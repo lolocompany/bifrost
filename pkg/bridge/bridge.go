@@ -98,8 +98,13 @@ func RunWithClients(ctx context.Context, id Identity, consumer ConsumerClient, p
 	stopStats := func() {}
 	if opts.PeriodicStatsInterval > 0 {
 		statsCtx, cancel := context.WithCancel(ctx)
-		stopStats = cancel
+		statsDone := make(chan struct{})
+		stopStats = func() {
+			cancel()
+			<-statsDone
+		}
 		go func() {
+			defer close(statsDone)
 			ticker := time.NewTicker(opts.PeriodicStatsInterval)
 			defer ticker.Stop()
 			lastTick := time.Now()
@@ -123,9 +128,12 @@ func RunWithClients(ctx context.Context, id Identity, consumer ConsumerClient, p
 
 	lastPollFailed := false
 	dispatchErrs := make(chan error, 1)
+	// commitQ must absorb completions while the loop is polling/committing; size 2x limits
+	// producer blocking without unbounded buffering.
 	commitQ := make(chan commitCandidate, opts.MaxInFlightBatches*2)
 	flushQ := make(chan struct{}, 1)
 	dispatchWG := &sync.WaitGroup{}
+	// globalSem caps concurrently produced batches across partitions.
 	globalSem := make(chan struct{}, opts.MaxInFlightBatches)
 	committer := newCommitAggregator(opts.CommitMaxRecords)
 	defer dispatchWG.Wait()

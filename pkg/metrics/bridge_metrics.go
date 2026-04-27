@@ -23,13 +23,14 @@ type BridgeMetrics struct {
 
 func newBridgeMetrics(reg prometheus.Registerer, bridges []config.Bridge) (BridgeMetrics, error) {
 	m := BridgeMetrics{}
+	baseLabels := bridge.LabelNames()
 
 	c := prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "bifrost_relay_messages_total",
 			Help: "Total number of messages successfully produced on the to-side cluster.",
 		},
-		bridge.LabelNames,
+		baseLabels,
 	)
 	if err := reg.Register(c); err != nil {
 		return BridgeMetrics{}, fmt.Errorf("register relay messages counter: %w", err)
@@ -41,7 +42,7 @@ func newBridgeMetrics(reg prometheus.Registerer, bridges []config.Bridge) (Bridg
 			Name: "bifrost_relay_errors_total",
 			Help: "Total number of relay errors by stage (poll, produce, commit, route).",
 		},
-		append(append([]string(nil), bridge.LabelNames...), "stage"),
+		append(append([]string(nil), baseLabels...), "stage"),
 	)
 	if err := reg.Register(cv); err != nil {
 		return BridgeMetrics{}, fmt.Errorf("register relay errors counter: %w", err)
@@ -54,7 +55,7 @@ func newBridgeMetrics(reg prometheus.Registerer, bridges []config.Bridge) (Bridg
 			Help:    "Wall-clock duration in seconds to produce a relayed record on the to-side cluster.",
 			Buckets: prometheus.DefBuckets,
 		},
-		bridge.LabelNames,
+		baseLabels,
 	)
 	if err := reg.Register(h); err != nil {
 		return BridgeMetrics{}, fmt.Errorf("register relay produce duration histogram: %w", err)
@@ -66,7 +67,7 @@ func newBridgeMetrics(reg prometheus.Registerer, bridges []config.Bridge) (Bridg
 			Name: "bifrost_relay_consumer_seconds_total",
 			Help: "Wall-clock seconds attributed to consumer state by bridge (busy or idle).",
 		},
-		append(append([]string(nil), bridge.LabelNames...), "state"),
+		append(append([]string(nil), baseLabels...), "state"),
 	)
 	if err := reg.Register(consumerSeconds); err != nil {
 		return BridgeMetrics{}, fmt.Errorf("register relay consumer seconds counter: %w", err)
@@ -78,7 +79,7 @@ func newBridgeMetrics(reg prometheus.Registerer, bridges []config.Bridge) (Bridg
 			Name: "bifrost_relay_producer_seconds_total",
 			Help: "Wall-clock seconds attributed to producer state by bridge (busy or idle).",
 		},
-		append(append([]string(nil), bridge.LabelNames...), "state"),
+		append(append([]string(nil), baseLabels...), "state"),
 	)
 	if err := reg.Register(producerSeconds); err != nil {
 		return BridgeMetrics{}, fmt.Errorf("register relay producer seconds counter: %w", err)

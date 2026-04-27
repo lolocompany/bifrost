@@ -175,10 +175,7 @@ func pingKafkaClient(ctx context.Context, client *kgo.Client, clusterCfg *config
 		return fmt.Errorf("ping timeout: %w", err)
 	}
 	defer cancelPing()
-	if err := kafka.PingBroker(pingCtx, client); err != nil {
-		return err
-	}
-	return nil
+	return kafka.PingBroker(pingCtx, client)
 }
 
 func resolveProducerForCluster(
