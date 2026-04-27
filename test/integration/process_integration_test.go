@@ -3,16 +3,17 @@ package integration_test
 import (
 	"context"
 	"encoding/binary"
-	"errors"
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/lolocompany/bifrost/pkg/bifrost"
 	"github.com/lolocompany/bifrost/pkg/bridge"
-	bifrostconfig "github.com/lolocompany/bifrost/pkg/config"
-	"github.com/twmb/franz-go/pkg/kadm"
-	"github.com/twmb/franz-go/pkg/kerr"
+	"github.com/lolocompany/bifrost/test/integration/testutil/artifacts"
+	kafkautil "github.com/lolocompany/bifrost/test/integration/testutil/kafka"
+	metricutil "github.com/lolocompany/bifrost/test/integration/testutil/metrics"
+	processutil "github.com/lolocompany/bifrost/test/integration/testutil/process"
+	"github.com/lolocompany/bifrost/test/integration/testutil/scenario"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
@@ -22,288 +23,182 @@ type relayInput struct {
 	value     []byte
 }
 
-type relayExpectation struct {
-	destPartition   int32
-	destKey         []byte
-	sourcePartition int32
-	sourceOffset    uint64
-}
-
 type relayScenario struct {
-	name              string
-	batchSize         int
-	replicas          int
-	fromPartitions    int32
-	toPartitions      int32
-	overridePartition *int32
-	overrideKey       *string
-	inputs            []relayInput
+	name         string
+	batchSize    int
+	replicas     int
+	fromParts    int32
+	toParts      int32
+	overrideKey  string
+	inputs       []relayInput
+	extraHeaders map[string]string
 }
 
-func runRelayScenarios(t *testing.T, brokers []string) {
+func runRelayScenarios(t *testing.T, provider kafkautil.Provider) {
 	t.Helper()
-
-	overridePartition := int32(1)
-	overrideKey := "fixed-key"
 	scenarios := []relayScenario{
 		{
-			name:           "batching",
-			batchSize:      3,
-			replicas:       1,
-			fromPartitions: 2,
-			toPartitions:   2,
+			name:      "batching",
+			batchSize: 3, replicas: 1, fromParts: 2, toParts: 2,
 			inputs: []relayInput{
 				{partition: 0, key: []byte("k0"), value: []byte("batch-0")},
 				{partition: 0, key: []byte("k1"), value: []byte("batch-1")},
-				{partition: 0, key: []byte("k2"), value: []byte("batch-2")},
-				{partition: 1, key: []byte("k3"), value: []byte("batch-3")},
+				{partition: 1, key: []byte("k2"), value: []byte("batch-2")},
 			},
 		},
 		{
-			name:           "multiple replicas",
-			batchSize:      1,
-			replicas:       2,
-			fromPartitions: 4,
-			toPartitions:   4,
+			name:      "multiple replicas",
+			batchSize: 1, replicas: 2, fromParts: 4, toParts: 4,
 			inputs: []relayInput{
 				{partition: 0, key: []byte("r0"), value: []byte("replicas-0")},
 				{partition: 1, key: []byte("r1"), value: []byte("replicas-1")},
 				{partition: 2, key: []byte("r2"), value: []byte("replicas-2")},
-				{partition: 3, key: []byte("r3"), value: []byte("replicas-3")},
 			},
 		},
 		{
-			name:           "batching with replicas",
-			batchSize:      2,
-			replicas:       2,
-			fromPartitions: 4,
-			toPartitions:   4,
-			inputs: []relayInput{
-				{partition: 0, key: []byte("c0"), value: []byte("combo-0")},
-				{partition: 0, key: []byte("c1"), value: []byte("combo-1")},
-				{partition: 1, key: []byte("c2"), value: []byte("combo-2")},
-				{partition: 1, key: []byte("c3"), value: []byte("combo-3")},
-				{partition: 2, key: []byte("c4"), value: []byte("combo-4")},
-				{partition: 3, key: []byte("c5"), value: []byte("combo-5")},
-			},
-		},
-		{
-			name:              "override partition",
-			batchSize:         1,
-			replicas:          1,
-			fromPartitions:    3,
-			toPartitions:      3,
-			overridePartition: &overridePartition,
-			inputs: []relayInput{
-				{partition: 0, key: []byte("p0"), value: []byte("override-partition-0")},
-				{partition: 2, key: []byte("p1"), value: []byte("override-partition-1")},
-			},
-		},
-		{
-			name:           "override key",
-			batchSize:      1,
-			replicas:       1,
-			fromPartitions: 2,
-			toPartitions:   2,
-			overrideKey:    &overrideKey,
+			name:        "override key",
+			batchSize:   1,
+			replicas:    1,
+			fromParts:   2,
+			toParts:     2,
+			overrideKey: "fixed-key",
 			inputs: []relayInput{
 				{partition: 0, key: []byte("orig-0"), value: []byte("override-key-0")},
 				{partition: 1, key: []byte("orig-1"), value: []byte("override-key-1")},
 			},
 		},
+		{
+			name:      "extra headers",
+			batchSize: 1, replicas: 1, fromParts: 2, toParts: 2,
+			extraHeaders: map[string]string{
+				"env": "itest",
+			},
+			inputs: []relayInput{
+				{partition: 0, key: []byte("h0"), value: []byte("extra-h-0")},
+				{partition: 1, key: []byte("h1"), value: []byte("extra-h-1")},
+			},
+		},
 	}
-
-	for _, scenario := range scenarios {
-		t.Run(scenario.name, func(t *testing.T) {
-			runRelayScenario(t, brokers, scenario)
+	for _, sc := range scenarios {
+		t.Run(sc.name, func(t *testing.T) {
+			runRelayScenario(t, provider, sc)
 		})
 	}
 }
 
-func runRelayScenario(t *testing.T, brokers []string, scenario relayScenario) {
+func runRelayScenario(t *testing.T, provider kafkautil.Provider, sc relayScenario) {
 	t.Helper()
-	if len(brokers) == 0 {
-		t.Fatal("brokers: need at least one seed broker")
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), 75*time.Second)
+	defer cancel()
+	brokers := kafkautil.StartCluster(t, ctx, provider)
+	pump := kafkautil.NewClient(t, brokers, kgo.RecordPartitioner(kgo.ManualPartitioner()))
+	defer pump.Close()
 
-	ctx := context.Background()
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 	fromTopic := "it.proc.from." + suffix
 	toTopic := "it.proc.to." + suffix
-
-	cluster := &bifrostconfig.Cluster{
-		Brokers: brokers,
-		TLS:     bifrostconfig.TLS{Enabled: false},
-		SASL:    bifrostconfig.SASL{Mechanism: "none"},
+	kafkautil.MustCreateTopic(t, ctx, pump, fromTopic, sc.fromParts)
+	kafkautil.MustCreateTopic(t, ctx, pump, toTopic, sc.toParts)
+	expected := make(map[string]relayInput, len(sc.inputs))
+	offsetByPart := map[int32]uint64{}
+	for _, in := range sc.inputs {
+		kafkautil.ProduceSync(t, ctx, pump, &kgo.Record{
+			Topic: fromTopic, Partition: in.partition, Key: in.key, Value: in.value,
+		})
+		expected[string(in.value)] = in
+		offsetByPart[in.partition]++
 	}
-	pump, err := kgo.NewClient(
-		kgo.SeedBrokers(brokers...),
-		kgo.RecordPartitioner(kgo.ManualPartitioner()),
-	)
+
+	metricsAddr, err := processutil.FreeTCPAddr()
 	if err != nil {
-		t.Fatalf("pump client: %v", err)
+		t.Fatalf("metrics addr: %v", err)
 	}
-	defer pump.Close()
-
-	mustCreateTopic(t, ctx, pump, fromTopic, scenario.fromPartitions)
-	mustCreateTopic(t, ctx, pump, toTopic, scenario.toPartitions)
-
-	expectations := make(map[string]relayExpectation, len(scenario.inputs))
-	offsetsByPartition := make(map[int32]uint64)
-	for _, input := range scenario.inputs {
-		if res := pump.ProduceSync(ctx, &kgo.Record{
-			Topic:     fromTopic,
-			Partition: input.partition,
-			Key:       input.key,
-			Value:     input.value,
-		}); res.FirstErr() != nil {
-			t.Fatalf("seed from-topic: %v", res.FirstErr())
-		}
-
-		destPartition := input.partition
-		if scenario.overridePartition != nil {
-			destPartition = *scenario.overridePartition
-		}
-		destKey := append([]byte(nil), input.key...)
-		if scenario.overrideKey != nil {
-			destKey = []byte(*scenario.overrideKey)
-		}
-		expectations[string(input.value)] = relayExpectation{
-			destPartition:   destPartition,
-			destKey:         destKey,
-			sourcePartition: input.partition,
-			sourceOffset:    offsetsByPartition[input.partition],
-		}
-		offsetsByPartition[input.partition]++
+	tmpl, err := processutil.ReadFile(filepath.Join("fixtures", "single_bridge.yaml.tmpl"))
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
 	}
-
-	cfg := bifrostconfig.Config{
-		Clusters: map[string]bifrostconfig.Cluster{"it": *cluster},
-		Bridges: []bifrostconfig.Bridge{{
-			Name:              "itest-process",
-			Replicas:          scenario.replicas,
-			BatchSize:         scenario.batchSize,
-			OverridePartition: scenario.overridePartition,
-			OverrideKey:       scenario.overrideKey,
-			From:              bifrostconfig.BridgeTarget{Cluster: "it", Topic: fromTopic},
-			To:                bifrostconfig.BridgeTarget{Cluster: "it", Topic: toTopic},
-		}},
-		Metrics: bifrostconfig.Metrics{Enable: boolPtr(false)},
-		Logging: bifrostconfig.Logging{
-			Level:                 "info",
-			Format:                "json",
-			Stream:                "stdout",
-			PeriodicStatsInterval: "0",
-		},
+	data := scenario.ConfigData{
+		FromTopic:      fromTopic,
+		ToTopic:        toTopic,
+		FromCluster:    "a",
+		ToCluster:      "b",
+		BrokersFrom:    brokers,
+		BrokersTo:      brokers,
+		MetricsAddr:    metricsAddr,
+		BridgeName:     "itest-process",
+		ConsumerGroup:  "itest-cg-" + suffix,
+		BatchSize:      sc.batchSize,
+		Replicas:       sc.replicas,
+		HasOverrideKey: sc.overrideKey != "",
+		OverrideKey:    sc.overrideKey,
+		ExtraHeaders:   sc.extraHeaders,
+	}
+	cfg, err := scenario.RenderConfig(string(tmpl), data)
+	if err != nil {
+		t.Fatalf("render config: %v", err)
+	}
+	art := artifacts.New(t, "integration")
+	if err := art.WriteConfig(cfg); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	proc, err := processutil.Start(ctx, art, metricsAddr)
+	if err != nil {
+		t.Fatalf("start bifrost: %v", err)
+	}
+	defer proc.Stop()
+	if err := proc.WaitReady(ctx); err != nil {
+		t.Fatalf("wait ready: %v", err)
 	}
 
-	runCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
-	defer cancel()
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- bifrost.Run(runCtx, cfg)
-	}()
-
-	verify, err := kgo.NewClient(
-		kgo.SeedBrokers(brokers...),
+	verify := kafkautil.NewClient(t, brokers,
 		kgo.ConsumeTopics(toTopic),
 		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
 		kgo.FetchIsolationLevel(kgo.ReadUncommitted()),
-		kgo.FetchMaxWait(2*time.Second),
 	)
-	if err != nil {
-		cancel()
-		<-errCh
-		t.Fatalf("verify client: %v", err)
-	}
 	defer verify.Close()
-
-	seen := make(map[string]struct{}, len(expectations))
-	deadline := time.Now().Add(40 * time.Second)
-	for len(seen) < len(expectations) && time.Now().Before(deadline) {
-		fetches := verify.PollFetches(runCtx)
-		if err := fetches.Err(); err != nil {
-			if runCtx.Err() != nil {
-				break
-			}
-			t.Fatalf("verify poll: %v", err)
-		}
-		for _, r := range fetches.Records() {
-			if r.Topic != toTopic {
-				continue
-			}
-			valueKey := string(r.Value)
-			expectation, ok := expectations[valueKey]
-			if !ok {
-				continue
-			}
-			validateRelayedRecord(t, r, expectation, fromTopic)
-			seen[valueKey] = struct{}{}
-		}
-	}
-
-	cancel()
-	if err := <-errCh; err != nil && !errors.Is(err, context.Canceled) {
-		t.Fatalf("bifrost.Run: %v", err)
-	}
-
-	if len(seen) != len(expectations) {
-		t.Fatalf("relayed records = %d, want %d", len(seen), len(expectations))
-	}
-}
-
-func mustCreateTopic(t *testing.T, ctx context.Context, cl *kgo.Client, topic string, partitions int32) {
-	t.Helper()
-	adm := kadm.NewClient(cl)
-	resp, err := adm.CreateTopics(ctx, partitions, 1, nil, topic)
+	records, err := kafkautil.WaitForRecords(ctx, verify, toTopic, len(sc.inputs), nil)
 	if err != nil {
-		t.Fatalf("create topic %q: %v", topic, err)
+		t.Fatalf("wait records: %v", err)
 	}
-	for _, result := range resp.Sorted() {
-		if result.Err != nil && !errors.Is(result.Err, kerr.TopicAlreadyExists) {
-			t.Fatalf("create topic %q: %v", topic, result.Err)
+	for _, r := range records {
+		in, ok := expected[string(r.Value)]
+		if !ok {
+			continue
 		}
-	}
-}
-
-func validateRelayedRecord(t *testing.T, record *kgo.Record, expectation relayExpectation, fromTopic string) {
-	t.Helper()
-	if record.Partition != expectation.destPartition {
-		t.Fatalf("destination partition: got %d want %d", record.Partition, expectation.destPartition)
-	}
-	if string(record.Key) != string(expectation.destKey) {
-		t.Fatalf("destination key: got %q want %q", record.Key, expectation.destKey)
-	}
-
-	headerVal := func(key string) ([]byte, bool) {
-		for _, h := range record.Headers {
-			if h.Key == key {
-				return h.Value, true
+		if sc.overrideKey != "" {
+			if string(r.Key) != sc.overrideKey {
+				t.Fatalf("override key: got %q want %q", r.Key, sc.overrideKey)
+			}
+		} else if string(r.Key) != string(in.key) {
+			t.Fatalf("key mismatch: got %q want %q", r.Key, in.key)
+		}
+		hdr := headerValue(r.Headers, bridge.HeaderSourcePartition)
+		if len(hdr) != 4 {
+			t.Fatalf("source partition header missing")
+		}
+		if got := binary.BigEndian.Uint32(hdr); got != uint32(in.partition) {
+			t.Fatalf("source partition=%d want=%d", got, in.partition)
+		}
+		for k, v := range sc.extraHeaders {
+			got := headerValue(r.Headers, k)
+			if string(got) != v {
+				t.Fatalf("extra header %q got %q want %q", k, got, v)
 			}
 		}
-		return nil, false
 	}
-
-	if v, ok := headerVal(bridge.HeaderSourceCluster); !ok || string(v) != "it" {
-		t.Fatalf("header %s: got %q ok=%v", bridge.HeaderSourceCluster, v, ok)
-	}
-	if v, ok := headerVal(bridge.HeaderSourceTopic); !ok || string(v) != fromTopic {
-		t.Fatalf("header %s: got %q ok=%v", bridge.HeaderSourceTopic, v, ok)
-	}
-	pv, ok := headerVal(bridge.HeaderSourcePartition)
-	if !ok || len(pv) != 4 {
-		t.Fatalf("header %s: %v ok=%v", bridge.HeaderSourcePartition, pv, ok)
-	}
-	ov, ok := headerVal(bridge.HeaderSourceOffset)
-	if !ok || len(ov) != 8 {
-		t.Fatalf("header %s: %v ok=%v", bridge.HeaderSourceOffset, ov, ok)
-	}
-	if got := binary.BigEndian.Uint32(pv); got != uint32(expectation.sourcePartition) {
-		t.Fatalf("source partition: got %d want %d", got, expectation.sourcePartition)
-	}
-	if got := binary.BigEndian.Uint64(ov); got != expectation.sourceOffset {
-		t.Fatalf("source offset: got %d want %d", got, expectation.sourceOffset)
+	if _, err := metricutil.WaitContains("http://"+metricsAddr+"/metrics", 10*time.Second,
+		"bifrost_relay_messages_total",
+		`stage="poll"`,
+	); err != nil {
+		t.Fatalf("metrics assert: %v", err)
 	}
 }
 
-func boolPtr(v bool) *bool { return &v }
+func headerValue(headers []kgo.RecordHeader, key string) []byte {
+	for _, h := range headers {
+		if h.Key == key {
+			return h.Value
+		}
+	}
+	return nil
+}

@@ -3,157 +3,103 @@ package integration_test
 import (
 	"context"
 	"encoding/binary"
-	"errors"
 	"fmt"
-	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/lolocompany/bifrost/pkg/bridge"
-	bifrostconfig "github.com/lolocompany/bifrost/pkg/config"
-	"github.com/lolocompany/bifrost/pkg/kafka"
-	"github.com/lolocompany/bifrost/pkg/metrics"
-	"github.com/testcontainers/testcontainers-go"
+	"github.com/lolocompany/bifrost/test/integration/testutil/artifacts"
+	kafkautil "github.com/lolocompany/bifrost/test/integration/testutil/kafka"
+	metricutil "github.com/lolocompany/bifrost/test/integration/testutil/metrics"
+	processutil "github.com/lolocompany/bifrost/test/integration/testutil/process"
+	"github.com/lolocompany/bifrost/test/integration/testutil/scenario"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
 func requireIntegration(t *testing.T) {
 	t.Helper()
-	if os.Getenv("BIFROST_INTEGRATION") != "1" {
-		t.Skip("set BIFROST_INTEGRATION=1 to run Docker integration tests")
-	}
-	testcontainers.SkipIfProviderIsNotHealthy(t)
+	kafkautil.RequireIntegration(t)
 }
 
-// runBridgeRelayTest exercises pkg/bridge against the given Kafka bootstrap broker(s).
-func runBridgeRelayTest(t *testing.T, brokers []string) {
+func runBridgeRelayTest(t *testing.T, provider kafkautil.Provider) {
 	t.Helper()
-	if len(brokers) == 0 {
-		t.Fatal("brokers: need at least one seed broker")
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), 75*time.Second)
+	defer cancel()
 
-	ctx := context.Background()
+	brokers := kafkautil.StartCluster(t, ctx, provider)
+	pump := kafkautil.NewClient(t, brokers)
+	defer pump.Close()
+
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 	fromTopic := "bifrost.it.from." + suffix
 	toTopic := "bifrost.it.to." + suffix
 	want := []byte("hello-bifrost-" + suffix)
 
-	env := &bifrostconfig.Cluster{
-		Brokers: brokers,
-		TLS:     bifrostconfig.TLS{Enabled: false},
-		SASL:    bifrostconfig.SASL{Mechanism: "none"},
-	}
+	kafkautil.MustCreateTopic(t, ctx, pump, fromTopic, 1)
+	kafkautil.MustCreateTopic(t, ctx, pump, toTopic, 1)
+	kafkautil.ProduceSync(t, ctx, pump, &kgo.Record{Topic: fromTopic, Value: want})
 
-	pump, err := kgo.NewClient(
-		kgo.SeedBrokers(brokers...),
-		kgo.AllowAutoTopicCreation(),
-	)
+	metricsAddr, err := processutil.FreeTCPAddr()
 	if err != nil {
-		t.Fatalf("pump client: %v", err)
-	}
-	defer pump.Close()
-
-	if res := pump.ProduceSync(ctx, &kgo.Record{Topic: toTopic, Value: nil}); res.FirstErr() != nil {
-		t.Fatalf("bootstrap to-topic: %v", res.FirstErr())
-	}
-	if res := pump.ProduceSync(ctx, &kgo.Record{Topic: fromTopic, Value: want}); res.FirstErr() != nil {
-		t.Fatalf("seed from-topic: %v", res.FirstErr())
+		t.Fatalf("metrics addr: %v", err)
 	}
 
-	metricsOff := false
-	mr, err := metrics.NewFromConfig(bifrostconfig.Config{
-		Metrics: bifrostconfig.Metrics{Enable: &metricsOff},
-		Bridges: []bifrostconfig.Bridge{
-			{
-				Name: "itest",
-				From: bifrostconfig.BridgeTarget{Cluster: "it", Topic: fromTopic},
-				To:   bifrostconfig.BridgeTarget{Cluster: "it", Topic: toTopic},
-			},
-		},
+	tmpl, err := processutil.ReadFile(filepath.Join("fixtures", "single_bridge.yaml.tmpl"))
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	rendered, err := scenario.RenderConfig(string(tmpl), scenario.ConfigData{
+		FromTopic:      fromTopic,
+		ToTopic:        toTopic,
+		FromCluster:    "a",
+		ToCluster:      "b",
+		BrokersFrom:    brokers,
+		BrokersTo:      brokers,
+		MetricsAddr:    metricsAddr,
+		BridgeName:     "itest",
+		ConsumerGroup:  "itest-cg-" + suffix,
+		BatchSize:      1,
+		Replicas:       1,
+		HasOverrideKey: false,
 	})
 	if err != nil {
-		t.Fatalf("metrics: %v", err)
+		t.Fatalf("render config: %v", err)
 	}
-	defer mr.StopServer()
 
-	consumer, err := kafka.NewConsumerForBridge(env, "itest-cg-"+suffix, fromTopic, nil, nil)
+	art := artifacts.New(t, "integration")
+	if err := art.WriteConfig(rendered); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	proc, err := processutil.Start(ctx, art, metricsAddr)
 	if err != nil {
-		t.Fatalf("consumer: %v", err)
+		t.Fatalf("start bifrost: %v", err)
 	}
-	defer consumer.Close()
+	defer proc.Stop()
 
-	producer, err := kafka.NewProducer(env, nil, nil)
-	if err != nil {
-		t.Fatalf("producer: %v", err)
+	readyCtx, readyCancel := context.WithTimeout(ctx, 20*time.Second)
+	defer readyCancel()
+	if err := proc.WaitReady(readyCtx); err != nil {
+		t.Fatalf("wait ready: %v", err)
 	}
-	defer producer.Close()
 
-	id := bridge.IdentityFrom(bifrostconfig.Bridge{
-		Name: "itest",
-		From: bifrostconfig.BridgeTarget{Cluster: "it", Topic: fromTopic},
-		To:   bifrostconfig.BridgeTarget{Cluster: "it", Topic: toTopic},
-	})
-
-	bridgeCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
-	defer cancel()
-
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- bridge.Run(bridgeCtx, id, consumer, producer, mr.BridgeMetrics, bridge.RunOptions{
-			BatchSize:          bifrostconfig.DefaultBridgeBatchSize,
-			MaxInFlightBatches: bifrostconfig.DefaultMaxInFlightBatches,
-			CommitInterval:     bifrostconfig.DefaultCommitInterval,
-			CommitMaxRecords:   bifrostconfig.DefaultCommitMaxRecords,
-		})
-	}()
-
-	verify, err := kgo.NewClient(
-		kgo.SeedBrokers(brokers...),
+	verify := kafkautil.NewClient(t, brokers,
 		kgo.ConsumeTopics(toTopic),
 		kgo.ConsumerGroup("itest-verify-"+suffix),
 		kgo.FetchIsolationLevel(kgo.ReadUncommitted()),
 	)
-	if err != nil {
-		cancel()
-		<-errCh
-		t.Fatalf("verify client: %v", err)
-	}
 	defer verify.Close()
 
-	deadline := time.Now().Add(40 * time.Second)
-	var got []byte
-	var gotRecord *kgo.Record
-	for time.Now().Before(deadline) {
-		fetches := verify.PollFetches(bridgeCtx)
-		if err := fetches.Err(); err != nil {
-			if bridgeCtx.Err() != nil {
-				break
-			}
-			t.Fatalf("verify poll: %v", err)
-		}
-		for _, r := range fetches.Records() {
-			if r.Topic == toTopic && string(r.Value) == string(want) {
-				got = append([]byte(nil), r.Value...)
-				cp := *r
-				gotRecord = &cp
-				break
-			}
-		}
-		if got != nil {
-			break
-		}
+	records, err := kafkautil.WaitForRecords(ctx, verify, toTopic, 1, func(r *kgo.Record) bool {
+		return string(r.Value) == string(want)
+	})
+	if err != nil {
+		t.Fatalf("wait records: %v", err)
 	}
-
-	cancel()
-	if err := <-errCh; err != nil && !errors.Is(err, context.Canceled) {
-		t.Fatalf("bridge: %v", err)
-	}
-
-	if got == nil {
-		t.Fatal("timed out waiting for relayed record on to-topic")
-	}
-	if string(got) != string(want) {
-		t.Fatalf("value: got %q want %q", got, want)
+	gotRecord := records[0]
+	if string(gotRecord.Value) != string(want) {
+		t.Fatalf("value: got %q want %q", gotRecord.Value, want)
 	}
 
 	headerVal := func(key string) ([]byte, bool) {
@@ -164,25 +110,29 @@ func runBridgeRelayTest(t *testing.T, brokers []string) {
 		}
 		return nil, false
 	}
-	if v, ok := headerVal(bridge.HeaderSourceCluster); !ok || string(v) != "it" {
+	if v, ok := headerVal(bridge.HeaderSourceCluster); !ok || string(v) != "a" {
 		t.Fatalf("header %s: got %q ok=%v", bridge.HeaderSourceCluster, v, ok)
 	}
 	if v, ok := headerVal(bridge.HeaderSourceTopic); !ok || string(v) != fromTopic {
 		t.Fatalf("header %s: got %q ok=%v", bridge.HeaderSourceTopic, v, ok)
 	}
 	pv, ok := headerVal(bridge.HeaderSourcePartition)
-	if !ok || len(pv) != 4 {
-		t.Fatalf("header %s: %v ok=%v", bridge.HeaderSourcePartition, pv, ok)
+	if !ok || len(pv) != 4 || binary.BigEndian.Uint32(pv) != 0 {
+		t.Fatalf("source partition header invalid: %v ok=%v", pv, ok)
 	}
 	ov, ok := headerVal(bridge.HeaderSourceOffset)
-	if !ok || len(ov) != 8 {
-		t.Fatalf("header %s: %v ok=%v", bridge.HeaderSourceOffset, ov, ok)
+	if !ok || len(ov) != 8 || binary.BigEndian.Uint64(ov) != 0 {
+		t.Fatalf("source offset header invalid: %v ok=%v", ov, ok)
 	}
-	// First payload on from-topic should be partition 0, offset 0 for this test.
-	if binary.BigEndian.Uint32(pv) != 0 {
-		t.Fatalf("source partition: got %d want 0", binary.BigEndian.Uint32(pv))
+
+	metricsBody, err := metricutil.WaitContains("http://"+metricsAddr+"/metrics", 10*time.Second,
+		"bifrost_relay_messages_total",
+		"bifrost_relay_produce_duration_seconds",
+	)
+	if err != nil {
+		t.Fatalf("metrics assert: %v", err)
 	}
-	if binary.BigEndian.Uint64(ov) != 0 {
-		t.Fatalf("source offset: got %d want 0", binary.BigEndian.Uint64(ov))
+	if len(metricsBody) == 0 {
+		t.Fatal("metrics body empty")
 	}
 }
