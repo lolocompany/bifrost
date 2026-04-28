@@ -10,7 +10,9 @@ func FreeTCPAddr() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer ln.Close()
+	defer func() {
+		_ = ln.Close()
+	}()
 	return ln.Addr().String(), nil
 }
 

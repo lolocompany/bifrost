@@ -105,7 +105,11 @@ func runRegressionCase(t *testing.T, name string, replicas, batchSize, inputCoun
 	if err != nil {
 		t.Fatalf("start process: %v", err)
 	}
-	defer proc.Stop()
+	t.Cleanup(func() {
+		if err := proc.Stop(); err != nil {
+			t.Errorf("stop bifrost: %v", err)
+		}
+	})
 	if err := proc.WaitReady(ctx); err != nil {
 		t.Fatalf("wait ready: %v", err)
 	}

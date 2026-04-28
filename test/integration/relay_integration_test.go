@@ -76,7 +76,11 @@ func runBridgeRelayTest(t *testing.T, provider kafkautil.Provider) {
 	if err != nil {
 		t.Fatalf("start bifrost: %v", err)
 	}
-	defer proc.Stop()
+	t.Cleanup(func() {
+		if err := proc.Stop(); err != nil {
+			t.Errorf("stop bifrost: %v", err)
+		}
+	})
 
 	readyCtx, readyCancel := context.WithTimeout(ctx, 20*time.Second)
 	defer readyCancel()
