@@ -11,9 +11,9 @@ import (
 	"syscall"
 
 	"github.com/lolocompany/bifrost/cmd/bifrost/version"
-	"github.com/lolocompany/bifrost/pkg/bifrost"
-	"github.com/lolocompany/bifrost/pkg/config"
-	"github.com/lolocompany/bifrost/pkg/logging"
+	"github.com/lolocompany/bifrost/internal/app"
+	"github.com/lolocompany/bifrost/internal/config"
+	"github.com/lolocompany/bifrost/internal/observability/logging"
 
 	"github.com/urfave/cli/v3"
 )
@@ -39,7 +39,7 @@ func main() {
 				Aliases: []string{"c"},
 				Usage:   "path to YAML config file",
 				Sources: cli.EnvVars("BIFROST_CONFIG"),
-				Value:   "bifrost.yaml",
+				Value:   "app.yaml",
 			},
 		},
 		Action: runCLI,
@@ -69,7 +69,7 @@ func runCLI(ctx context.Context, c *cli.Command) error {
 
 	slog.Info("config loaded", "config_path", filepath.Clean(path))
 
-	return bifrost.Run(ctx, *cfg)
+	return app.Run(ctx, *cfg)
 }
 
 func printVersion(cmd *cli.Command) {

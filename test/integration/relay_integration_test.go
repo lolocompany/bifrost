@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lolocompany/bifrost/pkg/bridge"
+	"github.com/lolocompany/bifrost/internal/domain/relay"
 	"github.com/lolocompany/bifrost/test/integration/testutil/artifacts"
 	kafkautil "github.com/lolocompany/bifrost/test/integration/testutil/kafka"
 	metricutil "github.com/lolocompany/bifrost/test/integration/testutil/metrics"
@@ -32,8 +32,8 @@ func runBridgeRelayTest(t *testing.T, provider kafkautil.Provider) {
 	defer pump.Close()
 
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
-	fromTopic := "bifrost.it.from." + suffix
-	toTopic := "bifrost.it.to." + suffix
+	fromTopic := "app.it.from." + suffix
+	toTopic := "app.it.to." + suffix
 	want := []byte("hello-bifrost-" + suffix)
 
 	kafkautil.MustCreateTopic(t, ctx, pump, fromTopic, 1)
@@ -114,17 +114,17 @@ func runBridgeRelayTest(t *testing.T, provider kafkautil.Provider) {
 		}
 		return nil, false
 	}
-	if v, ok := headerVal(bridge.HeaderSourceCluster); !ok || string(v) != "a" {
-		t.Fatalf("header %s: got %q ok=%v", bridge.HeaderSourceCluster, v, ok)
+	if v, ok := headerVal(relay.HeaderSourceCluster); !ok || string(v) != "a" {
+		t.Fatalf("header %s: got %q ok=%v", relay.HeaderSourceCluster, v, ok)
 	}
-	if v, ok := headerVal(bridge.HeaderSourceTopic); !ok || string(v) != fromTopic {
-		t.Fatalf("header %s: got %q ok=%v", bridge.HeaderSourceTopic, v, ok)
+	if v, ok := headerVal(relay.HeaderSourceTopic); !ok || string(v) != fromTopic {
+		t.Fatalf("header %s: got %q ok=%v", relay.HeaderSourceTopic, v, ok)
 	}
-	pv, ok := headerVal(bridge.HeaderSourcePartition)
+	pv, ok := headerVal(relay.HeaderSourcePartition)
 	if !ok || len(pv) != 4 || binary.BigEndian.Uint32(pv) != 0 {
 		t.Fatalf("source partition header invalid: %v ok=%v", pv, ok)
 	}
-	ov, ok := headerVal(bridge.HeaderSourceOffset)
+	ov, ok := headerVal(relay.HeaderSourceOffset)
 	if !ok || len(ov) != 8 || binary.BigEndian.Uint64(ov) != 0 {
 		t.Fatalf("source offset header invalid: %v ok=%v", ov, ok)
 	}

@@ -25,7 +25,7 @@ require (
 	github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c // indirect
 	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
-	github.com/Olian04/go-complexity-explorer v0.0.0-20260428141738-e19b9231e506 // indirect
+	github.com/Olian04/go-complexity-explorer v0.0.0-20260428155716-576f6fb888e2 // indirect
 	github.com/aclements/go-moremath v0.0.0-20210112150236-f10218a38794 // indirect
 	github.com/anthropics/anthropic-sdk-go v1.26.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect

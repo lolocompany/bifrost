@@ -22,7 +22,7 @@ This repository uses a config-first testing style inspired by lolo-engine while 
 - Unit:
   - `make test`
 - Process integration:
-  - `BIFROST_INTEGRATION=1 make test-process-integration`
+  - `BIFROST_INTEGRATION=1 make test-integration`
 - Regression:
   - `BIFROST_INTEGRATION=1 make test-regression`
 - Full integration:

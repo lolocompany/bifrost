@@ -44,7 +44,7 @@ go.work.sum
 # Build output
 bifrost
 !cmd/**/*
-!pkg/**/*
+!internal/**/*
 !test/**/*
 bench.txt
 bench.err
@@ -54,4 +54,4 @@ tmp
 # Codequality pipeline artifacts (keep baseline.json in VCS)
 reports
 test/.artifacts
-test/unit/benchmark/.prof/
+test/benchmark/.prof/

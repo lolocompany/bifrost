@@ -17,17 +17,17 @@ readonly RESET="\033[0m"
 run_quality_inputs() {
   mkdir -p "${RAW_DIR}"
 
-  go test ./test/unit/... \
+  go test ./cmd/... ./internal/... \
     -coverprofile="${RAW_DIR}/unit-coverage.out" \
-    -coverpkg=./pkg/... \
+    -coverpkg=./cmd/...,./internal/... \
     >/dev/null
 
   go tool cover -func="${RAW_DIR}/unit-coverage.out" >"${COVER_FILE}"
 
   # gocyclo/gocognit return non-zero when findings exceed threshold.
-  go tool gocyclo -over 15 ./pkg ./cmd >"${CYCLO_FILE}" 2>/dev/null || true
-  go tool gocognit -over 20 ./pkg ./cmd >"${COGN_FILE}" 2>/dev/null || true
-  go tool dupl -t 60 ./pkg ./cmd >"${DUPL_FILE}"
+  go tool gocyclo -over 15 ./internal ./cmd >"${CYCLO_FILE}" 2>/dev/null || true
+  go tool gocognit -over 20 ./internal ./cmd >"${COGN_FILE}" 2>/dev/null || true
+  go tool dupl -t 60 ./internal ./cmd >"${DUPL_FILE}"
 }
 
 coverage_value() {

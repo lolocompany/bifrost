@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lolocompany/bifrost/pkg/config"
+	"github.com/lolocompany/bifrost/internal/config"
 )
 
 func TestParse_clustersAndBridges(t *testing.T) {

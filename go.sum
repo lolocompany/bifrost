@@ -22,6 +22,8 @@ github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERo
 github.com/Microsoft/go-winio v0.6.2/go.mod h1:yd8OoFMLzJbo9gZq8j5qaps8bJ9aShtEA8Ipt1oGCvU=
 github.com/Olian04/go-complexity-explorer v0.0.0-20260428141738-e19b9231e506 h1:AnKlsQ63Uo/vK0lQupiKmBuText1dhAMVDssr+1yqkQ=
 github.com/Olian04/go-complexity-explorer v0.0.0-20260428141738-e19b9231e506/go.mod h1:DoZcGYx87TD4TEbrDfliYn9Tk15aQ8IcmxZzExg3NHo=
+github.com/Olian04/go-complexity-explorer v0.0.0-20260428155716-576f6fb888e2 h1:9kCtQ4cpia1cK6tQHT3zUxbr6EnrdiRt2dQEV4XO2+8=
+github.com/Olian04/go-complexity-explorer v0.0.0-20260428155716-576f6fb888e2/go.mod h1:DoZcGYx87TD4TEbrDfliYn9Tk15aQ8IcmxZzExg3NHo=
 github.com/aclements/go-moremath v0.0.0-20210112150236-f10218a38794 h1:xlwdaKcTNVW4PtpQb8aKA4Pjy0CdJHEqvFbAnvR5m2g=
 github.com/aclements/go-moremath v0.0.0-20210112150236-f10218a38794/go.mod h1:7e+I0LQFUI9AXWxOfsQROs9xPhoJtbsyWcjJqDd4KPY=
 github.com/anthropics/anthropic-sdk-go v1.26.0 h1:oUTzFaUpAevfuELAP1sjL6CQJ9HHAfT7CoSYSac11PY=

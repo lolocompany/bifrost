@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lolocompany/bifrost/pkg/bridge"
+	"github.com/lolocompany/bifrost/internal/domain/relay"
 	"github.com/lolocompany/bifrost/test/integration/testutil/artifacts"
 	kafkautil "github.com/lolocompany/bifrost/test/integration/testutil/kafka"
 	metricutil "github.com/lolocompany/bifrost/test/integration/testutil/metrics"
@@ -176,7 +176,7 @@ func runRelayScenario(t *testing.T, provider kafkautil.Provider, sc relayScenari
 		} else if string(r.Key) != string(in.key) {
 			t.Fatalf("key mismatch: got %q want %q", r.Key, in.key)
 		}
-		hdr := headerValue(r.Headers, bridge.HeaderSourcePartition)
+		hdr := headerValue(r.Headers, relay.HeaderSourcePartition)
 		if len(hdr) != 4 {
 			t.Fatalf("source partition header missing")
 		}

@@ -3,7 +3,7 @@ package config_test
 import (
 	"testing"
 
-	"github.com/lolocompany/bifrost/pkg/config"
+	"github.com/lolocompany/bifrost/internal/config"
 )
 
 func TestParse_metricsExtraLabelsRejectsStateLabel(t *testing.T) {

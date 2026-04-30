@@ -24,7 +24,7 @@ You senior Go dev. Write clean, safe, testable code.
 | Concurrency | Prefer `sync.Mutex` for shared mutable state | Simpler than channel for mutex job |
 | Structure | No `util` / `helpers` catch-all packages | Avoid junk drawer |
 | Structure | Entrypoints in `./cmd/` | Clear boundary |
-| Structure | Library/business code in `./pkg/` | Clear boundary |
+| Structure | App-owned product code in `./internal/` | No public library API |
 | Structure | Package names singular, lowercase | Go convention |
 
 ## Reply preamble (required)

@@ -146,20 +146,22 @@ If you omit these blocks, bifrost uses the same defaults shown above. Commit ret
 
 ### Development
 
-| Command | Purpose |
-| --- | --- |
-| `make build` | Build `./bifrost` from source |
-| `make test` | Run unit tests (`./test/unit/...`) |
-| `make test-integration` | Run Docker-backed integration tests (`BIFROST_INTEGRATION=1`) |
-| `make bench` | Default subset; **one Redpanda container per benchmark** (isolated; slower than shared broker) |
-| `make lint` | Run `go vet`, `go mod verify`, `govulncheck`, `gosec`, and `golangci-lint` |
-| `make lint` | Run vet, module verify, static/security/style checks (`staticcheck`, `govulncheck`, `gosec`, `golangci-lint`, `errcheck`, `revive`) |
-| `make codequality-scorecard` | Generate codequality scorecard (`reports/codequality/scorecard.{json,md}`) |
-| `make codequality-baseline` | Capture/refresh codequality baseline for regression gates |
-| `make codequality-gate` | Enforce codequality regression + severe outlier gates |
-| `make test-unit` | Run unit tests (`./test/unit/...`) |
-| `make test-race` | Run unit tests with race detector (`./test/unit/...`) |
-| `make format` | Run `go fmt` and `gofmt` |
+| Command                      | Purpose                                                                                                                             |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `make build`                 | Build `./bifrost` from source                                                                                                       |
+| `make test`                  | Run unit tests (`./cmd/... ./internal/...`)                                                                                         |
+| `make test-integration`      | Run Docker-backed integration tests (`BIFROST_INTEGRATION=1`)                                                                       |
+| `make bench`                 | Default subset; **one Redpanda container per benchmark** (isolated; slower than shared broker)                                      |
+| `make lint`                  | Run `go vet`, `go mod verify`, `govulncheck`, `gosec`, and `golangci-lint`                                                          |
+| `make lint`                  | Run vet, module verify, static/security/style checks (`staticcheck`, `govulncheck`, `gosec`, `golangci-lint`, `errcheck`, `revive`) |
+| `make codequality-scorecard` | Generate codequality scorecard (`reports/codequality/scorecard.{json,md}`)                                                          |
+| `make codequality-baseline`  | Capture/refresh codequality baseline for regression gates                                                                           |
+| `make codequality-gate`      | Enforce codequality regression + severe outlier gates                                                                               |
+| `make test-unit`             | Run unit tests (`./cmd/... ./internal/...`)                                                                                         |
+| `make test-race`             | Run unit tests with race detector (`./cmd/... ./internal/...`)                                                                      |
+| `make format`                | Run `go fmt` and `gofmt`                                                                                                            |
+
+Bifrost is a CLI/service-first repository, not a supported Go library API. Product code lives under `internal/`: `app` composes process wiring, `domain/relay` owns consume -> produce -> commit behavior, `integrations/kafka` adapts Franz-go, and `observability/*` owns logging and metrics.
 
 Contributor and agent-oriented notes on layout and naming: `[docs/AGENTS.md](./docs/AGENTS.md)`.
 Configuration profiles and tradeoffs: `[docs/config-profiles.md](./docs/config-profiles.md)`.
@@ -169,7 +171,7 @@ Codequality policy and governance: `[.cursor/docs/codequality.md](./.cursor/docs
 
 ## Downstream deduplication (source headers)
 
-Every relayed record includes **source coordinate** headers so consumers can treat deliveries as **at-least-once** and still process each logical message once. The bridge always sets these; optional per-bridge `**extra_headers`** in YAML are added next, then any headers copied from the source record. Extra header keys must not use the `**bifrost.\*\*\*` prefix (reserved for the relay). By default, bifrost writes each destination record to the same partition number as the source record, so the destination topic must have at least as many partitions as the source topic. `override_partition` can force all records on a bridge to one destination partition instead, and `override_key` can replace every produced record key with a fixed string. `batch_size` groups records by source topic-partition, but offsets are still committed only after the matching produce succeeds.
+Every relayed record includes **source coordinate** headers so consumers can treat deliveries as **at-least-once** and still process each logical message once. The bridge always sets these; optional per-bridge `**extra_headers`** in YAML are added next, then any headers copied from the source record. Extra header keys must not use the `**bifrost.\*\*\*`prefix (reserved for the relay). By default, bifrost writes each destination record to the same partition number as the source record, so the destination topic must have at least as many partitions as the source topic.`override_partition`can force all records on a bridge to one destination partition instead, and`override_key`can replace every produced record key with a fixed string.`batch_size` groups records by source topic-partition, but offsets are still committed only after the matching produce succeeds.
 
 | Header                     | Value                                                    |
 | -------------------------- | -------------------------------------------------------- |

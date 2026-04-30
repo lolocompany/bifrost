@@ -2,6 +2,7 @@ package process
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -79,6 +80,15 @@ func (p *BifrostProcess) Stop() error {
 	if p.cmd == nil || p.cmd.Process == nil {
 		return nil
 	}
-	_ = p.cmd.Process.Kill()
-	return p.cmd.Wait()
+	if err := p.cmd.Process.Kill(); err != nil {
+		return err
+	}
+	if err := p.cmd.Wait(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }

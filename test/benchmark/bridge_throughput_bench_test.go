@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lolocompany/bifrost/pkg/bifrost"
-	"github.com/lolocompany/bifrost/pkg/bridge"
-	bifrostconfig "github.com/lolocompany/bifrost/pkg/config"
-	"github.com/lolocompany/bifrost/pkg/kafka"
-	"github.com/lolocompany/bifrost/pkg/metrics"
+	"github.com/lolocompany/bifrost/internal/app"
+	bifrostconfig "github.com/lolocompany/bifrost/internal/config"
+	"github.com/lolocompany/bifrost/internal/domain/relay"
+	"github.com/lolocompany/bifrost/internal/integrations/kafka"
+	"github.com/lolocompany/bifrost/internal/observability/metrics"
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -80,7 +80,7 @@ func benchCluster(brokers []string, payloadSize int) bifrostconfig.Cluster {
 }
 
 // BenchmarkBridgeRelay256B measures end-to-end relay time per message (256 B payload) through
-// pkg/bridge against a live Redpanda broker (see cluster_bench_test.go).
+// internal/domain/relay against a live Redpanda broker (see cluster_bench_test.go).
 func BenchmarkBridgeRelay256B(b *testing.B) {
 	benchmarkBridgeRelayWithBurst(b, 256, 1)
 }
@@ -108,7 +108,7 @@ func BenchmarkBridgeRelay10MiB(b *testing.B) {
 }
 
 // BenchmarkKafkaRoundTrip256B measures produce + single-partition consume on one topic with no
-// bridge. Compare to BenchmarkBridgeRelay256B: the gap is mostly bridge work (relay produce,
+// relay. Compare to BenchmarkBridgeRelay256B: the gap is mostly bridge work (relay produce,
 // commit, headers copy) versus baseline Kafka client + broker path.
 func BenchmarkKafkaRoundTrip256B(b *testing.B) {
 	benchmarkKafkaRoundTrip(b, 256)
@@ -202,7 +202,7 @@ func benchmarkKafkaRoundTrip(b *testing.B, payloadSize int) {
 
 	ctx := context.Background()
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
-	topic := "bifrost.bench.rt." + suffix
+	topic := "app.bench.rt." + suffix
 
 	env := benchCluster(brokers, payloadSize)
 	full, err := kafka.FullClusterOpts(&env)
@@ -280,8 +280,8 @@ func benchmarkBridgeRelayWithBurst(b *testing.B, payloadSize int, burst int) {
 
 	ctx := context.Background()
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
-	fromTopic := "bifrost.bench.from." + suffix
-	toTopic := "bifrost.bench.to." + suffix
+	fromTopic := "app.bench.from." + suffix
+	toTopic := "app.bench.to." + suffix
 
 	env := benchCluster(brokers, payloadSize)
 	full, err := kafka.FullClusterOpts(&env)
@@ -320,7 +320,7 @@ func benchmarkBridgeRelayWithBurst(b *testing.B, payloadSize int, burst int) {
 	}
 	defer metricsRegistry.StopServer()
 
-	// Consumer group is required for CommitRecords in pkg/bridge. Cap fetch long-poll and disable
+	// Consumer group is required for CommitRecords in internal/relay. Cap fetch long-poll and disable
 	// fetch sessions so PollFetches returns regularly and ctx cancellation is observable.
 	consumer, err := kafka.NewConsumerForBridge(&env, "bench-cg-"+suffix, fromTopic, nil, nil,
 		kgo.FetchMaxWait(2*time.Second),
@@ -337,11 +337,13 @@ func benchmarkBridgeRelayWithBurst(b *testing.B, payloadSize int, burst int) {
 	}
 	defer producer.Close()
 
-	id := bridge.IdentityFrom(bifrostconfig.Bridge{
-		Name: "bench",
-		From: bifrostconfig.BridgeTarget{Cluster: "bench", Topic: fromTopic},
-		To:   bifrostconfig.BridgeTarget{Cluster: "bench", Topic: toTopic},
-	})
+	id := relay.Identity{
+		BridgeName:  "bench",
+		FromCluster: "bench",
+		FromTopic:   fromTopic,
+		ToCluster:   "bench",
+		ToTopic:     toTopic,
+	}
 
 	verify, err := newBenchVerifyClient(brokers, toTopic, "bench-verify-"+suffix, payloadSize)
 	if err != nil {
@@ -354,7 +356,7 @@ func benchmarkBridgeRelayWithBurst(b *testing.B, payloadSize int, burst int) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- bridge.Run(bridgeCtx, id, consumer, producer, metricsRegistry.BridgeMetrics, bridge.RunOptions{
+		errCh <- relay.Run(bridgeCtx, id, consumer, producer, metricsRegistry.BridgeMetrics, relay.Options{
 			BatchSize:          bifrostconfig.DefaultBridgeBatchSize,
 			MaxInFlightBatches: bifrostconfig.DefaultMaxInFlightBatches,
 			CommitInterval:     bifrostconfig.DefaultCommitInterval,
@@ -457,8 +459,8 @@ func benchmarkBifrostRunWithBurstAndCluster(
 
 	ctx := context.Background()
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
-	fromTopic := "bifrost.bench.proc.from." + suffix
-	toTopic := "bifrost.bench.proc.to." + suffix
+	fromTopic := "app.bench.proc.from." + suffix
+	toTopic := "app.bench.proc.to." + suffix
 
 	full, err := kafka.FullClusterOpts(&env)
 	if err != nil {
@@ -502,7 +504,7 @@ func benchmarkBifrostRunWithBurstAndCluster(
 	defer runCancel()
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- bifrost.Run(runCtx, cfg)
+		errCh <- app.Run(runCtx, cfg)
 	}()
 
 	for partition := int32(0); partition < fromPartitions; partition++ {
@@ -543,7 +545,7 @@ func benchmarkBifrostRunWithBurstAndCluster(
 	select {
 	case err := <-errCh:
 		if err != nil && !errors.Is(err, context.Canceled) {
-			b.Fatalf("bifrost.Run: %v", err)
+			b.Fatalf("app.Run: %v", err)
 		}
 	default:
 	}
@@ -563,7 +565,7 @@ func benchmarkBifrostRunWithBurstAndCluster(
 
 	runCancel()
 	if err := <-errCh; err != nil && !errors.Is(err, context.Canceled) {
-		b.Fatalf("bifrost.Run: %v", err)
+		b.Fatalf("app.Run: %v", err)
 	}
 }
 
@@ -581,7 +583,7 @@ func mustCreateBenchTopic(b *testing.B, ctx context.Context, cl *kgo.Client, top
 	}
 }
 
-// waitForBenchRelayOnToTopic blocks until a record produced by pkg/bridge appears on toTopic
+// waitForBenchRelayOnToTopic blocks until a record produced by internal/domain/relay appears on toTopic
 // (identified by bifrost source headers). This avoids counting raw topic records: the pump's
 // nil bootstrap to to-topic is not a relay and must not be confused with the relayed seed.
 func waitForBenchRelayOnToTopic(ctx context.Context, cl *kgo.Client, toTopic string, errCh <-chan error) error {
@@ -610,7 +612,7 @@ func waitForBenchRelayOnToTopic(ctx context.Context, cl *kgo.Client, toTopic str
 				continue
 			}
 			for _, h := range r.Headers {
-				if h.Key == bridge.HeaderSourceCluster {
+				if h.Key == relay.HeaderSourceCluster {
 					return nil
 				}
 			}

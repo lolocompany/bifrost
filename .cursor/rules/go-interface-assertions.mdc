@@ -6,7 +6,7 @@ alwaysApply: false
 
 # Go: compile-time interface satisfaction
 
-When concrete type must implement interface (especially cross-package contract like `MetricsReporter`), add package-level blank-identifier assignment.
+When concrete type must implement interface (especially cross-package contract like `relay.Metrics`), add package-level blank-identifier assignment.
 Compiler then enforces contract at build time. Signature drift fails fast.
 
 ## Pattern
@@ -16,8 +16,8 @@ Pointer receiver (common for mutable structs):
 Use `(*T)(nil)`. No allocation. Compile-time only.
 
 ```go
-// ASSERT: BridgeMetrics implements bridge.MetricsReporter
-var _ bridge.MetricsReporter = (*BridgeMetrics)(nil)
+// ASSERT: BridgeMetrics implements relay.Metrics
+var _ relay.Metrics = (*BridgeMetrics)(nil)
 ```
 
 Value receiver (only when value methods satisfy interface):

@@ -1,10 +1,10 @@
 # All targets are phony (no file named "build", "test", etc. should shadow these).
 .PHONY: bench bench-full \
 	build build-docker codequality format help lint \
-	test test-coverage test-integration test-race test-regression test-unit
+	test test-coverage test-integration test-race test-regression test-template test-unit
 	
 # Source code paths, for use in linting and codequality targets.
-SOURCE_CODE ?= ./cmd/... ./pkg/...
+SOURCE_CODE ?= ./cmd/... ./internal/... ./test/unit/...
 
 # Isolated Redpanda per benchmark: wall time grows with container churn; allow a generous cap.
 BENCH_PATTERN ?= BenchmarkBridgeRelay256B|BenchmarkKafkaRoundTrip256B|BenchmarkBridgeRelayBurst256B
@@ -40,17 +40,24 @@ lint: ## Run go vet, module verify, static/security/style checks
 complexity-explorer: ## Run complexity explorer
 	go tool complexity-explorer
 
+exported-unused: ## Run exported unused checks
+	go tool complexity-explorer analyze --include=cmd,internal,test --output=./tmp/analysis.json
+	jq -r '.. | objects \
+		| select(has("function") and has("backlinks") and has("reference_backlinks")) \
+		| select(.backlinks == null and .reference_backlinks == null) \
+		| {"package": .package // "", "file": .file // "", "function": .function // ""} \
+		| @json' ./tmp/analysis.json | sort -u | jq -c
+
 codequality: ## Run codequality checks and print color text report
 	@bash scripts/codequality_report.sh
 
-
 test: test-unit ## Alias for test-unit
 
-test-unit: ## Run unit tests (./test/unit/...)
-	go test -shuffle=on -timeout 120s ./test/unit/...
+test-unit: ## Run unit tests
+	go test -shuffle=on -timeout 120s $(SOURCE_CODE)
 
 test-race: ## Run unit tests with race detector
-	go test -race -shuffle=on -timeout 180s ./test/unit/...
+	go test -race -shuffle=on -timeout 180s $(SOURCE_CODE)
 
 test-integration: ## Run integration tests (BIFROST_INTEGRATION=1)
 	BIFROST_INTEGRATION=1 go test -shuffle=on -timeout 120s ./test/integration/...
@@ -58,10 +65,14 @@ test-integration: ## Run integration tests (BIFROST_INTEGRATION=1)
 test-regression: ## Run config regression tests (BIFROST_INTEGRATION=1)
 	BIFROST_INTEGRATION=1 go test -shuffle=on -timeout 300s ./test/regression/...
 
-# Tests live under test/..., so default -cover only sees external test packages (no pkg statements) → 0%.
-# -coverpkg instruments pkg/ and cmd/ when those packages are exercised from test/ packages.
+test-template: ## Run checks for architecture-template nested module
+	$(MAKE) -C architecture-template lint
+	$(MAKE) -C architecture-template test
+
+# Unit tests live under test/unit; system tests live under test/...
+# -coverpkg instruments internal/ and cmd/ when packages are exercised from both suites.
 test-coverage: ## Run tests with coverage output and HTML report
-	BIFROST_INTEGRATION=1 go test -coverprofile=coverage.out -coverpkg='$(SOURCE_CODE)' ./test/...
+	BIFROST_INTEGRATION=1 go test -coverprofile=coverage.out -coverpkg='./cmd/...,./internal/...' $(SOURCE_CODE) ./test/...
 	go tool cover -html=coverage.out
 
 # GOMAXPROCS=$(BENCH_GOMAXPROCS) and -p 1: one package worker; default one OS thread for stable CPU.
