@@ -35,14 +35,12 @@ Any justified exception should include:
 
 ## Measurement and reporting workflow
 
-- Generate scorecard locally: `make codequality-scorecard`
-- Capture baseline snapshot for regression gates: `make codequality-baseline`
-- Run enforceable gates: `make codequality-gate`
+- Run codequality report locally: `make codequality`
 - Artifacts:
-  - `reports/codequality/scorecard.json`
-  - `reports/codequality/scorecard.md`
-  - `reports/codequality/baseline.json`
-  - `reports/codequality/snapshots/*.json`
+  - `reports/codequality/coverage.txt`
+  - `reports/codequality/cyclomatic-red.txt`
+  - `reports/codequality/cognitive-red.txt`
+  - `reports/codequality/duplication.txt`
 
 ## Go style and static-analysis baseline
 
@@ -56,11 +54,11 @@ The repository enforces a lint baseline aligned with the Uber Go style guidance:
 
 Local command:
 
-- `make lint-ci`
+- `make lint`
 
 CI command path:
 
-- `.github/workflows/go-quality.yml` runs `make lint-ci`, `make test-unit`, and `make test-race`.
+- `.github/workflows/go-quality.yml` runs `make lint`, `make test-unit`, and `make test-race`.
 
 ## Alignment decision rules
 

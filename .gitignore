@@ -40,22 +40,18 @@ go.work.sum
 
 # OS X
 .DS_Store
+
+# Build output
 bifrost
 !cmd/**/*
 !pkg/**/*
 !test/**/*
 bench.txt
 bench.err
+dist
 tmp
 
-test/unit/benchmark/.prof/
-
-# GoReleaser build output
-dist/
-
 # Codequality pipeline artifacts (keep baseline.json in VCS)
-reports/codequality/raw/
-reports/codequality/snapshots/
-reports/codequality/*scorecard.json
-reports/codequality/*scorecard.md
+reports
 test/.artifacts
+test/unit/benchmark/.prof/

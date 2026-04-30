@@ -72,7 +72,7 @@ Extract helpers only when the same logic runs multiple times with different para
 
 ### Quality gates
 
-- Keep Go style/lint checks aligned with repository CI: `make lint-ci`, `make test-unit`, `make test-race`.
+- Keep Go style/lint checks aligned with repository CI: `make lint`, `make test-unit`, `make test-race`.
 - If you change linter policy, update `.golangci.yml`, CI workflow(s), and `docs/codequality.md` in the same effort.
 
 ## What to read before large changes
