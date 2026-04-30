@@ -6,20 +6,21 @@ alwaysApply: false
 
 # Go: compile-time interface satisfaction
 
-When a **concrete type must implement an interface** (especially one defined in another package, e.g. a consumer’s `MetricsReporter`), add a **package-level assignment to the blank identifier** so the compiler verifies the implementation. If methods are added, renamed, or signatures drift, the build breaks immediately instead of failing at runtime or only in distant tests.
+When concrete type must implement interface (especially cross-package contract like `MetricsReporter`), add package-level blank-identifier assignment.
+Compiler then enforces contract at build time. Signature drift fails fast.
 
 ## Pattern
 
-**Pointer receiver** (typical for structs with mutable state or consistency with other methods):
+Pointer receiver (common for mutable structs):
 
-Use `(*T)(nil)` so no instance is allocated; the assignment is compile-time only.
+Use `(*T)(nil)`. No allocation. Compile-time only.
 
 ```go
 // ASSERT: BridgeMetrics implements bridge.MetricsReporter
 var _ bridge.MetricsReporter = (*BridgeMetrics)(nil)
 ```
 
-**Value receiver** (only if the type implements the interface with value receivers):
+Value receiver (only when value methods satisfy interface):
 
 ```go
 // ASSERT: MyReader implements io.Reader
@@ -28,14 +29,14 @@ var _ io.Reader = MyReader{}
 
 ## Where to put it
 
-- Immediately **above** the concrete type, or directly **below** the type block, in the **implementing** package.
-- Prefer a one-line comment such as `// ASSERT: <Type> implements <pkg.Interface>` so intent is obvious in review and search.
+- Put right above concrete type, or right below type block, in implementing package.
+- Prefer one-line comment like `// ASSERT: <Type> implements <pkg.Interface>`.
 
 ## When to add or skip
 
-- **Add** when the interface is part of a public contract (dependency injection, plugin, or cross-package API) and missing a method would otherwise surface late.
-- **Optional** for very small, same-package interfaces that are already enforced by every call site; still useful if the interface is expected to grow.
+- Add for public contracts (DI, plugin, cross-package API) where mismatch would surface late.
+- Optional for tiny same-package interfaces already enforced by call sites, still useful if interface may grow.
 
 ## Related conventions in this repo
 
-- Interfaces are often defined **where they are used**; implementations live elsewhere—this assertion is the cheap link that keeps them aligned.
+- In this repo, interfaces often defined at use site, implementations elsewhere. Assertion is cheap compile-time link between them.

@@ -163,7 +163,7 @@ If you omit these blocks, bifrost uses the same defaults shown above. Commit ret
 
 Contributor and agent-oriented notes on layout and naming: `[docs/AGENTS.md](./docs/AGENTS.md)`.
 Configuration profiles and tradeoffs: `[docs/config-profiles.md](./docs/config-profiles.md)`.
-Codequality policy and governance: `[docs/codequality.md](./docs/codequality.md)` and `[docs/maintainability-governance.md](./docs/maintainability-governance.md)`.
+Codequality policy and governance: `[.cursor/docs/codequality.md](./.cursor/docs/codequality.md)` and `[.cursor/docs/maintainability-governance.md](./.cursor/docs/maintainability-governance.md)`.
 
 ---
 

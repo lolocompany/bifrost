@@ -144,7 +144,3 @@ These metrics come from the Prometheus process collector.
 | Metric | Type | Labels | Description |
 | :-- | :-- | :-- | :-- |
 | `process_*` | `Mixed` | none | Standard process metrics (CPU time, memory, open FDs, start time, virtual/resident memory, etc.). |
-
-## Codequality policy
-
-Repository codequality policy (maintainability/complexity targets, thresholds, and governance workflow) lives in `docs/codequality.md`.

@@ -5,14 +5,16 @@ alwaysApply: true
 
 # Align with `docs/AGENTS.md`
 
-For **every modification to code** in this repository (new code, refactors, tests, wiring), follow **[docs/AGENTS.md](docs/AGENTS.md)** so changes stay consistent with product vocabulary, package boundaries, and repo conventions.
+For every code change in repo (new code, refactor, tests, wiring), follow `docs/AGENTS.md`.
+Goal: keep product words, package boundaries, repo conventions aligned.
 
-**Before substantive edits**, skim or re-read `docs/AGENTS.md` (and the deeper references it lists for large work). Treat it as authoritative for:
+Before big edits, skim/re-read `docs/AGENTS.md` (and deeper refs it points to). Treat as source of truth for:
 
-- **Terminology** — e.g. bridge vs relay vs process; `from` / `to`; relay orchestration in `pkg/bifrost`; avoiding ambiguous names like `bridgeRuntime`.
-- **Layout and responsibilities** — where `cmd/bifrost`, `pkg/bifrost`, `pkg/bridge`, `pkg/config`, `pkg/kafka`, `pkg/metrics`, and tests belong (`test/unit/<package>/` for `pkg/*` unit tests).
-- **Naming and imports** — e.g. avoiding `bridge` as a local that shadows the `pkg/bridge` import; action-oriented names in `pkg/bifrost`.
-- **Errors and metrics** — wrapping style; `bifrost_` / `bifrost_relay_*` naming as documented.
-- **Anti-patterns** — e.g. no catch-all `util` / `helpers` packages; tests for behavior changes in `pkg/` and relay wiring.
+- Terminology: bridge vs relay vs process, `from` / `to`, relay orchestration in `pkg/bifrost`, avoid names like `bridgeRuntime`.
+- Layout/responsibility: where `cmd/bifrost`, `pkg/bifrost`, `pkg/bridge`, `pkg/config`, `pkg/kafka`, `pkg/metrics`, tests belong (`test/unit/<package>/` for `pkg/*`).
+- Naming/imports: do not shadow `pkg/bridge` import with local `bridge`; keep action-oriented names in `pkg/bifrost`.
+- Errors/metrics: error wrapping style, metric prefixes `bifrost_` and `bifrost_relay_*`.
+- Anti-patterns: no catch-all `util` / `helpers`; test behavior changes in `pkg/` and relay wiring.
 
-If `docs/AGENTS.md` conflicts with a generic suggestion, **prefer `docs/AGENTS.md`**. When public behavior or major boundaries change, update `docs/AGENTS.md` in the same effort (per its maintainer note).
+If generic advice conflicts with `docs/AGENTS.md`, pick `docs/AGENTS.md`.
+If public behavior or big package boundaries change, update `docs/AGENTS.md` in same effort.

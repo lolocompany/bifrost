@@ -1,6 +1,6 @@
 # Maintainability Governance
 
-This playbook defines how to operate maintainability metrics after the pipeline is in place.
+This playbook says how to run maintainability metrics after pipeline exists.
 
 ## Cadence
 
@@ -10,10 +10,10 @@ This playbook defines how to operate maintainability metrics after the pipeline 
   - For justified exceptions, add a bounded follow-up issue.
 - **Per merge to `main`**
   - Run `make codequality-scorecard`.
-  - Keep generated snapshot under `reports/codequality/snapshots/`.
+  - Keep snapshot in `reports/codequality/snapshots/`.
 - **Weekly**
   - Review top hotspots from latest scorecard (`churn x complexity`).
-  - Select at least one high-risk hotspot for incremental refactor/test hardening.
+  - Pick at least one high-risk hotspot for incremental refactor/test hardening.
 - **Monthly**
   - Compare current scorecard to baseline and prior month.
   - Decide whether thresholds can be tightened.
@@ -43,7 +43,7 @@ Use this template for each maintainability item:
 ## Threshold Ratcheting Policy
 
 - Ratchet only after two consecutive periods with no regressions.
-- Tighten one threshold category at a time (for example complexity first, coverage next).
+- Tighten one threshold category at time (example: complexity first, coverage next).
 - Never ratchet without a passing CI gate and a rollback plan.
 
 ## Definition of Done for maintainability work
