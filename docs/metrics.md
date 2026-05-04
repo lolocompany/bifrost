@@ -3,7 +3,7 @@
 This document is the detailed reference for all metrics emitted by bifrost.
 
 - Namespace: application metrics are prefixed with `bifrost_`; Go/process collector metrics keep standard `go_*` and `process_*` names.
-- Constant labels: if `metrics.extra_labels` is configured, those labels are attached to all metrics.
+- Constant labels: if `metrics.labels.extra` is configured (legacy `metrics.extra_labels` merges when only one side is set; both must agree), those labels are attached to all metrics.
 - Relay metrics (`bifrost_relay_*`) are always registered when the metrics endpoint is enabled; they are not gated by `metrics.groups`.
 - Group switches: `metrics.groups.<group>` controls optional families (`kafka`, `tls`, `tcp`, `golang`, `process`).
 
@@ -33,8 +33,8 @@ These are the stable, low-cardinality label keys used by bifrost application met
 | `kafka_cluster` | `kafka`, `tls`, `tcp` | Cluster key associated with broker hook events. |
 | `tls_version` | `tls` | Negotiated TLS protocol version (`1.2`, `1.3`, `unknown`). |
 
-Additional labels may appear when `metrics.extra_labels` is configured; those are user-defined constant labels attached to all metric families.
-`metrics.extra_labels` must not reuse built-in variable label keys (`bridge`, `from_kafka_cluster`,
+Additional labels may appear when `metrics.labels.extra` is configured; those are user-defined constant labels attached to all metric families.
+`metrics.labels.extra` must not reuse built-in variable label keys (`bridge`, `from_kafka_cluster`,
 `from_topic`, `to_kafka_cluster`, `to_topic`, `stage`, `state`, `kafka_cluster`, `tls_version`,
 `le`, `quantile`), otherwise config validation fails.
 
@@ -82,7 +82,7 @@ sum by (bridge, from_kafka_cluster, from_topic, to_kafka_cluster, to_topic) (
 
 Prometheus and Alloy scrapes typically attach target identity labels such as `job` and `instance`, and may also attach discovery/relabel-derived infrastructure labels (for example `cluster`, `namespace`, `pod`, `service`) depending on your pipeline configuration.
 
-Prometheus/Alloy pipelines can also be configured to add or rewrite labels via relabeling and service-discovery metadata promotion. Since those labels may vary by environment, avoid using the following keys in `metrics.extra_labels` to prevent exact or semantic collisions:
+Prometheus/Alloy pipelines can also be configured to add or rewrite labels via relabeling and service-discovery metadata promotion. Since those labels may vary by environment, avoid using the following keys in `metrics.labels.extra` to prevent exact or semantic collisions:
 
 - `job`
 - `instance`
@@ -92,7 +92,7 @@ Prometheus/Alloy pipelines can also be configured to add or rewrite labels via r
 - `service`
 - any label matching `^__.*__$`
 
-At startup, bifrost logs a warning if any configured `metrics.extra_labels` keys match the reserved
+At startup, bifrost logs a warning if any configured `metrics.labels.extra` keys match the reserved
 scrape list above or built-in bifrost variable label keys.
 
 ## kafka

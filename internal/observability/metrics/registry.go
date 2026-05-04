@@ -50,15 +50,15 @@ func (m *MetricsRegistry) ServerErr() <-chan error {
 // NewFromConfig registers collectors from cfg and starts the /metrics HTTP server when enabled.
 func NewFromConfig(cfg config.Config) (MetricsRegistry, error) {
 	reg := prometheus.NewRegistry()
-	if conflicts := conflictingReservedOrBuiltInLabels(cfg.Metrics.ExtraLabels); len(conflicts) > 0 {
+	if conflicts := conflictingReservedOrBuiltInLabels(cfg.Metrics.EffectiveExtraLabels()); len(conflicts) > 0 {
 		slog.Warn(
-			"metrics.extra_labels include reserved scrape labels or built-in metric variable labels; this may cause exact or semantic label collisions",
+			"metrics.labels.extra include reserved scrape labels or built-in metric variable labels; this may cause exact or semantic label collisions",
 			"conflicting_extra_labels", conflicts,
 			"reserved_scrape_labels", append(sortedLabelSetKeys(reservedScrapeLabels()), reservedInternalLabelRE.String()),
 			"built_in_metric_labels", sortedLabelSetKeys(config.MetricVariableLabels()),
 		)
 	}
-	registerer := wrapRegistererWithExtraLabels(reg, cfg.Metrics.ExtraLabels)
+	registerer := wrapRegistererWithExtraLabels(reg, cfg.Metrics.EffectiveExtraLabels())
 	m := cfg.Metrics
 
 	var bridgeMetrics BridgeMetrics

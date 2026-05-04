@@ -254,8 +254,8 @@ logging:
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	if len(cfg.Logging.ExtraFields) != 0 {
-		t.Fatalf("expected no default extra_fields, got: %#v", cfg.Logging.ExtraFields)
+	if len(cfg.Logging.EffectiveExtraFields()) != 0 {
+		t.Fatalf("expected no default logging.fields.extra, got: %#v", cfg.Logging.EffectiveExtraFields())
 	}
 }
 
@@ -878,8 +878,8 @@ logging:
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	if cfg.Metrics.ExtraLabels["service"] != "bifrost" {
-		t.Fatalf("extra_labels.service: %q", cfg.Metrics.ExtraLabels["service"])
+	if cfg.Metrics.EffectiveExtraLabels()["service"] != "bifrost" {
+		t.Fatalf("metrics.labels.extra service: %q", cfg.Metrics.EffectiveExtraLabels()["service"])
 	}
 }
 
@@ -903,7 +903,62 @@ logging:
 `
 	_, err := config.Parse([]byte(yamlDoc))
 	if err == nil {
-		t.Fatal("expected error for conflicting metrics.extra_labels key")
+		t.Fatal("expected error for conflicting metrics.labels.extra key")
+	}
+	if !strings.Contains(err.Error(), "metrics.labels.extra") {
+		t.Fatalf("error: %v", err)
+	}
+}
+
+func TestParse_metricsLabelsExtraConflictsLegacy(t *testing.T) {
+	const yamlDoc = `
+clusters:
+  east:
+    brokers: ["127.0.0.1:9092"]
+bridges:
+  - name: east-loop
+    from: { cluster: east, topic: in }
+    to: { cluster: east, topic: out }
+metrics:
+  enabled: false
+  extra_labels:
+    env: a
+  labels:
+    extra:
+      env: b
+logging:
+  level: info
+  stream: stdout
+`
+	_, err := config.Parse([]byte(yamlDoc))
+	if err == nil {
+		t.Fatal("expected error when extra_labels and labels.extra disagree")
+	}
+}
+
+func TestParse_loggingFieldsExtraConflictsLegacy(t *testing.T) {
+	const yamlDoc = `
+clusters:
+  east:
+    brokers: ["127.0.0.1:9092"]
+bridges:
+  - name: east-loop
+    from: { cluster: east, topic: in }
+    to: { cluster: east, topic: out }
+metrics:
+  enabled: false
+logging:
+  level: info
+  stream: stdout
+  extra_fields:
+    service: a
+  fields:
+    extra:
+      service: b
+`
+	_, err := config.Parse([]byte(yamlDoc))
+	if err == nil {
+		t.Fatal("expected error when extra_fields and fields.extra disagree")
 	}
 }
 
@@ -1011,11 +1066,11 @@ logging:
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	if cfg.Metrics.ExtraLabels["service"] != "bifrost" {
-		t.Fatalf("metrics.extra_labels.service: %q", cfg.Metrics.ExtraLabels["service"])
+	if cfg.Metrics.EffectiveExtraLabels()["service"] != "bifrost" {
+		t.Fatalf("metrics.labels.extra.service: %q", cfg.Metrics.EffectiveExtraLabels()["service"])
 	}
-	if cfg.Logging.ExtraFields["schema_version"] != "1.0" {
-		t.Fatalf("logging.extra_fields.schema_version: %q", cfg.Logging.ExtraFields["schema_version"])
+	if cfg.Logging.EffectiveExtraFields()["schema_version"] != "1.0" {
+		t.Fatalf("logging.fields.extra.schema_version: %q", cfg.Logging.EffectiveExtraFields()["schema_version"])
 	}
 }
 
@@ -1129,11 +1184,11 @@ logging:
 	if cfg.Logging.Stream != "stdout" || cfg.Logging.Level != "info" || cfg.Logging.Format != "json" {
 		t.Fatalf("normalized logging config: %#v", cfg.Logging)
 	}
-	if cfg.Logging.ExtraFields["schema_version"] != "1.0" {
-		t.Fatalf("normalized extra field: %#v", cfg.Logging.ExtraFields)
+	if cfg.Logging.EffectiveExtraFields()["schema_version"] != "1.0" {
+		t.Fatalf("normalized logging.fields.extra: %#v", cfg.Logging.EffectiveExtraFields())
 	}
-	if cfg.Metrics.ExtraLabels["service"] != "bifrost" {
-		t.Fatalf("normalized extra label: %#v", cfg.Metrics.ExtraLabels)
+	if cfg.Metrics.EffectiveExtraLabels()["service"] != "bifrost" {
+		t.Fatalf("normalized metrics.labels.extra: %#v", cfg.Metrics.EffectiveExtraLabels())
 	}
 }
 

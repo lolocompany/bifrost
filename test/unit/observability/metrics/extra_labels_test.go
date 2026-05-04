@@ -22,9 +22,11 @@ func TestMetricsExtraLabelsApplied(t *testing.T) {
 		Metrics: bifrostconfig.Metrics{
 			Enable:     &metricsOn,
 			ListenAddr: "127.0.0.1:0",
-			ExtraLabels: map[string]string{
-				"service": "bifrost",
-				"env":     "test",
+			Labels: &bifrostconfig.MetricLabels{
+				Extra: map[string]string{
+					"service": "bifrost",
+					"env":     "test",
+				},
 			},
 		},
 		Bridges: bridges,
@@ -90,13 +92,15 @@ func TestMetricsExtraLabelsReservedScrapeKeysAreWarnOnly(t *testing.T) {
 		Metrics: bifrostconfig.Metrics{
 			Enable:     &metricsOn,
 			ListenAddr: "127.0.0.1:0",
-			ExtraLabels: map[string]string{
-				"job":       "bifrost",
-				"instance":  "itest-1",
-				"cluster":   "dev",
-				"namespace": "default",
-				"pod":       "bifrost-0",
-				"service":   "bifrost",
+			Labels: &bifrostconfig.MetricLabels{
+				Extra: map[string]string{
+					"job":       "bifrost",
+					"instance":  "itest-1",
+					"cluster":   "dev",
+					"namespace": "default",
+					"pod":       "bifrost-0",
+					"service":   "bifrost",
+				},
 			},
 		},
 		Bridges: bridges,

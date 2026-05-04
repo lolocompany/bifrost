@@ -18,10 +18,12 @@ func TestSetup_JSONFieldsPresent(t *testing.T) {
 			Level:  "info",
 			Format: "json",
 			Stream: "stdout",
-			ExtraFields: map[string]string{
-				"schema_version": "1.0",
-				"service":        "bifrost",
-				"env":            "test",
+			Fields: &config.LoggingFields{
+				Extra: map[string]string{
+					"schema_version": "1.0",
+					"service":        "bifrost",
+					"env":            "test",
+				},
 			},
 		}, logging.WithSoftwareVersion("1.2.3-test"))
 		if err != nil {
@@ -64,9 +66,11 @@ func TestSetup_LogfmtKeepsExtraFields(t *testing.T) {
 			Level:  "info",
 			Format: "logfmt",
 			Stream: "stdout",
-			ExtraFields: map[string]string{
-				"schema_version": "1.0",
-				"service":        "bifrost",
+			Fields: &config.LoggingFields{
+				Extra: map[string]string{
+					"schema_version": "1.0",
+					"service":        "bifrost",
+				},
 			},
 		}, logging.WithSoftwareVersion("1.2.3-test"))
 		if err != nil {

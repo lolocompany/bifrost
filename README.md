@@ -6,7 +6,7 @@
 
 **Observability**:
 
-- **Logs:** Structured log lines (JSON or logfmt), written to stdout or stderr with configurable extra fields.
+- **Logs:** Structured log lines (JSON or logfmt), written to stdout or stderr; optional attributes via `logging.fields.extra` (legacy `logging.extra_fields` when it does not conflict).
 - **Metrics:** Prometheus scrape path `/metrics`. By default `metrics.listen_addr` is `:9090` (all interfaces) when metrics are enabled; override it in YAML. Scrape, for example, `http://127.0.0.1:9090/metrics`. Series include `bifrost_` application metrics plus standard `go_*` / `process_*` collector series.
 
 **Runtime requirement:** at least one **Kafka-compatible** broker (Apache Kafka, Redpanda, etc.) reachable from the host or container running bifrost.
@@ -209,6 +209,6 @@ Core `bifrost_relay_`\* bridge metrics are always exported when metrics are enab
 - `tls` — TLS handshake and peer certificate metrics per cluster
 - `golang`, `process`, `tcp` — runtime/platform collectors
 
-Application metric names are prefixed with `bifrost_`; runtime collector metrics keep standard names (`go_*`, `process_*`). You can also set `metrics.extra_labels` to attach constant labels to all exported series.
+Application metric names are prefixed with `bifrost_`; runtime collector metrics keep standard names (`go_*`, `process_*`). You can also set `metrics.labels.extra` (legacy `metrics.extra_labels` still accepted when it does not conflict) to attach constant labels to all exported series.
 
 For full metric-by-metric tables (name, labels, explanation), see [Metrics Deep Dive](./docs/metrics.md).

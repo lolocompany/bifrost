@@ -19,9 +19,11 @@ func TestMetricsExtraLabelsBuiltInVariableLabelCollisionFailsRegistration(t *tes
 	}
 	_, err := metrics.NewFromConfig(bifrostconfig.Config{
 		Metrics: bifrostconfig.Metrics{
-			Enable:      &metricsOn,
-			ListenAddr:  "127.0.0.1:0",
-			ExtraLabels: map[string]string{"bridge": "shadow"},
+			Enable:     &metricsOn,
+			ListenAddr: "127.0.0.1:0",
+			Labels: &bifrostconfig.MetricLabels{
+				Extra: map[string]string{"bridge": "shadow"},
+			},
 		},
 		Bridges: bridges,
 	})

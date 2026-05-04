@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/lolocompany/bifrost/internal/config"
@@ -27,5 +28,8 @@ logging:
 	_, err := config.Parse([]byte(yamlDoc))
 	if err == nil {
 		t.Fatal("expected error for state extra label collision")
+	}
+	if !strings.Contains(err.Error(), "metrics.labels.extra") {
+		t.Fatalf("error: %v", err)
 	}
 }

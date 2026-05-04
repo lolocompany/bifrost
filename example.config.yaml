@@ -149,9 +149,13 @@ metrics:
   # Prometheus listen address for /metrics endpoint.
   listen_addr: ':9090'
   # Optional constant labels attached to all emitted metrics.
-  extra_labels:
-    service: 'bifrost'
-    env: 'dev'
+  labels:
+    extra:
+      service: 'bifrost'
+      env: 'dev'
+  # Deprecated: same as labels.extra when it is the only map; must match labels.extra if both appear.
+  # extra_labels:
+  #   service: 'bifrost'
   groups:
     golang: true
     process: true
@@ -167,10 +171,14 @@ logging:
   # Output stream: stdout or stderr.
   stream: 'stdout'
   # Optional fields injected into every log line.
-  extra_fields:
-    uls_version: '1.0'
-    service: 'bifrost'
-    env: 'local'
+  fields:
+    extra:
+      uls_version: '1.0'
+      service: 'bifrost'
+      env: 'local'
+  # Deprecated: same as fields.extra when it is the only map; must match fields.extra if both appear.
+  # extra_fields:
+  #   uls_version: '1.0'
   # How often each bridge logs info-level "bridge periodic stats" (messages_delta and errors_delta
   # since the previous log, plus period_seconds). Go duration syntax (e.g. 30s, 5m). Default 5m.
   # Set to "0" or "0s" to disable.

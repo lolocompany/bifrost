@@ -70,7 +70,7 @@ func Setup(cfg config.Logging, setupOpts ...SetupOption) (func(), error) {
 	for _, opt := range setupOpts {
 		opt(o)
 	}
-	logger := slog.New(h).With(append([]any{"software_version", o.softwareVersion}, extraArgs(cfg.ExtraFields)...)...)
+	logger := slog.New(h).With(append([]any{"software_version", o.softwareVersion}, extraArgs(cfg.EffectiveExtraFields())...)...)
 	slog.SetDefault(logger)
 	return func() {}, nil
 }

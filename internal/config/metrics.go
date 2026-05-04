@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"regexp"
 	"strings"
@@ -10,10 +11,18 @@ import (
 
 // Metrics configures the Prometheus scrape endpoint and which series to expose.
 type Metrics struct {
-	Enable      *bool             `yaml:"enabled"`     // default true when omitted
-	ListenAddr  string            `yaml:"listen_addr"` // default :9090 when metrics are enabled and omitted/blank
-	Groups      MetricGroups      `yaml:"groups"`
-	ExtraLabels map[string]string `yaml:"extra_labels"` // added to all bifrost metrics as constant labels
+	Enable     *bool        `yaml:"enabled"`      // default true when omitted
+	ListenAddr string       `yaml:"listen_addr"` // default :9090 when metrics are enabled and omitted/blank
+	Groups     MetricGroups `yaml:"groups"`
+	// Labels holds optional Prometheus constant labels (nested extra map).
+	Labels *MetricLabels `yaml:"labels,omitempty"`
+	// ExtraLabels is deprecated: use labels.extra. If both are set they must agree after normalization.
+	ExtraLabels map[string]string `yaml:"extra_labels,omitempty"`
+}
+
+// MetricLabels configures constant labels attached to all bifrost-emitted metrics.
+type MetricLabels struct {
+	Extra map[string]string `yaml:"extra,omitempty"`
 }
 
 // MetricGroups toggles optional metric families. Omitted or nil fields default to enabled.
@@ -38,9 +47,34 @@ func (m *Metrics) ApplyDefaults() {
 	}
 }
 
+func (m *Metrics) mergeLegacyExtraLabels() error {
+	if m == nil || len(m.ExtraLabels) == 0 {
+		return nil
+	}
+	if m.Labels == nil {
+		m.Labels = &MetricLabels{}
+	}
+	if len(m.Labels.Extra) == 0 {
+		m.Labels.Extra = maps.Clone(m.ExtraLabels)
+		return nil
+	}
+	if maps.Equal(trimStringMapKeysValues(m.Labels.Extra), trimStringMapKeysValues(m.ExtraLabels)) {
+		return nil
+	}
+	return fmt.Errorf("metrics: extra_labels and metrics.labels.extra both set with different entries")
+}
+
+// EffectiveExtraLabels returns constant labels from metrics.labels.extra (may be nil).
+func (m *Metrics) EffectiveExtraLabels() map[string]string {
+	if m == nil || m.Labels == nil {
+		return nil
+	}
+	return m.Labels.Extra
+}
+
 func (m *Metrics) validate() error {
-	if err := validateMetricsExtraLabels(m.ExtraLabels); err != nil {
-		return fmt.Errorf("extra_labels: %w", err)
+	if err := validateMetricsExtraLabels(m.EffectiveExtraLabels()); err != nil {
+		return fmt.Errorf("metrics.labels.extra: %w", err)
 	}
 	if !m.MetricsEnabled() {
 		return nil

@@ -26,12 +26,16 @@ func (c *Config) normalize() error {
 			return err
 		}
 	}
-	c.Metrics.normalize()
-	if err := normalizeStringMap(c.Metrics.ExtraLabels, "metrics.extra_labels"); err != nil {
+	if err := c.Metrics.normalize(); err != nil {
 		return err
 	}
-	c.Logging.normalize()
-	return normalizeStringMap(c.Logging.ExtraFields, "logging.extra_fields")
+	if err := normalizeStringMap(c.Metrics.EffectiveExtraLabels(), "metrics.labels.extra"); err != nil {
+		return err
+	}
+	if err := c.Logging.normalize(); err != nil {
+		return err
+	}
+	return normalizeStringMap(c.Logging.EffectiveExtraFields(), "logging.fields.extra")
 }
 
 func (b *Bridge) normalize() error {
@@ -47,15 +51,21 @@ func (t *BridgeTarget) normalize() {
 	t.Topic = strings.TrimSpace(t.Topic)
 }
 
-func (m *Metrics) normalize() {
-	m.ListenAddr = strings.TrimSpace(m.ListenAddr)
+func (m *Metrics) normalize() error {
+	if m != nil {
+		m.ListenAddr = strings.TrimSpace(m.ListenAddr)
+	}
+	return m.mergeLegacyExtraLabels()
 }
 
-func (l *Logging) normalize() {
-	l.Level = strings.TrimSpace(l.Level)
-	l.Format = strings.TrimSpace(l.Format)
-	l.Stream = strings.TrimSpace(l.Stream)
-	l.PeriodicStatsInterval = strings.TrimSpace(l.PeriodicStatsInterval)
+func (l *Logging) normalize() error {
+	if l != nil {
+		l.Level = strings.TrimSpace(l.Level)
+		l.Format = strings.TrimSpace(l.Format)
+		l.Stream = strings.TrimSpace(l.Stream)
+		l.PeriodicStatsInterval = strings.TrimSpace(l.PeriodicStatsInterval)
+	}
+	return l.mergeLegacyExtraFields()
 }
 
 func (c *Cluster) normalize() {

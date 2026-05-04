@@ -23,6 +23,7 @@ Key product facts:
   - At-least-once preserved: commit only after matching produce succeeds.
   - README + metrics often use **relay** (`bifrost_relay_*`).
 - **Clusters:** named broker profiles under `clusters:`. Consumer settings apply on from side; producer settings on to side.
+- **Metrics / logging (config):** `metrics.labels.extra` and `logging.fields.extra`; legacy `metrics.extra_labels` / `logging.extra_fields` merge when only one side is set and must match if both appear (same rule as `headers.extra` vs `extra_headers` on bridges).
 - **Process:** one OS process runs `internal/app.Run` with `errgroup`.
   - Each bridge config can spawn multiple `relay.Run` goroutines.
   - `replicas` omitted or `0` => auto-size from source partition count (after topic ensure), with CPU/memory caps + global fair-sharing across bridges (see `internal/app` budgeting + `SystemSnapshot`).
