@@ -139,7 +139,7 @@ func Run(ctx context.Context, cfg config.Config) error {
 				if err != nil {
 					return fmt.Errorf("bridge %q retry config: %w", bridgeCfg.Name, err)
 				}
-				runOpts.ExtraHeaders = recordHeadersFromExtraHeaders(bridgeCfg.ExtraHeaders)
+				runOpts.ExtraHeaders = recordHeadersFromExtraHeaders(bridgeCfg.EffectiveHeadersExtra())
 
 				consumer, err := newConsumer(ctx, bridgeCfg, fromCluster, metricsRegistry.BrokerMetrics)
 				if err != nil {

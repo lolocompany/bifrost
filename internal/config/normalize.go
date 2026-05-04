@@ -22,7 +22,9 @@ func (c *Config) normalize() error {
 	c.Clusters = normalizedClusters
 
 	for i := range c.Bridges {
-		c.Bridges[i].normalize()
+		if err := c.Bridges[i].normalize(); err != nil {
+			return err
+		}
 	}
 	c.Metrics.normalize()
 	if err := normalizeStringMap(c.Metrics.ExtraLabels, "metrics.extra_labels"); err != nil {
@@ -32,11 +34,12 @@ func (c *Config) normalize() error {
 	return normalizeStringMap(c.Logging.ExtraFields, "logging.extra_fields")
 }
 
-func (b *Bridge) normalize() {
+func (b *Bridge) normalize() error {
 	b.Name = strings.TrimSpace(b.Name)
 	b.ConsumerGroup = strings.TrimSpace(b.ConsumerGroup)
 	b.From.normalize()
 	b.To.normalize()
+	return b.mergeLegacyExtraHeaders()
 }
 
 func (t *BridgeTarget) normalize() {

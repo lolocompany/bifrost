@@ -35,9 +35,12 @@ type Bridge struct {
 	// OverridePartition forces all produced records for this bridge onto one destination partition.
 	OverridePartition *int32 `yaml:"override_partition,omitempty"`
 	// OverrideKey replaces the Kafka key on every produced record for this relay.
-	OverrideKey   *string           `yaml:"override_key,omitempty"`
-	ConsumerGroup string            `yaml:"consumer_group"`
-	ExtraHeaders  map[string]string `yaml:"extra_headers,omitempty"`
+	OverrideKey   *string `yaml:"override_key,omitempty"`
+	ConsumerGroup string  `yaml:"consumer_group"`
+	// Headers configures produced-record Kafka headers (extra strings, source metadata, propagation).
+	Headers *BridgeHeaders `yaml:"headers,omitempty"`
+	// ExtraHeaders is deprecated: use headers.extra. If both are set they must agree; see mergeLegacyExtraHeaders.
+	ExtraHeaders map[string]string `yaml:"extra_headers,omitempty"`
 }
 
 // BridgeTarget references a cluster name (key in clusters) and a single topic.
@@ -59,7 +62,7 @@ func (b *Bridge) validate(clusters map[string]Cluster) error {
 	if b.From.Cluster == b.To.Cluster && b.From.Topic == b.To.Topic {
 		return errors.New("from and to cannot be the same cluster and topic")
 	}
-	if err := validateExtraHeaders(b.ExtraHeaders); err != nil {
+	if err := validateBridgeHeaders(b); err != nil {
 		return err
 	}
 	if b.Replicas < 0 {
@@ -94,22 +97,6 @@ func (b *Bridge) validate(clusters map[string]Cluster) error {
 
 // bifrostHeaderPrefix is reserved for headers set by bifrost (e.g. bifrost.source.*).
 const bifrostHeaderPrefix = "bifrost."
-
-func validateExtraHeaders(m map[string]string) error {
-	if len(m) == 0 {
-		return nil
-	}
-	for k := range m {
-		key := strings.TrimSpace(k)
-		if key == "" {
-			return fmt.Errorf("extra_headers: empty key")
-		}
-		if strings.HasPrefix(key, bifrostHeaderPrefix) {
-			return fmt.Errorf("extra_headers: key %q must not use the %q prefix (reserved for bifrost)", key, bifrostHeaderPrefix)
-		}
-	}
-	return nil
-}
 
 func (t *BridgeTarget) validate(role string, clusters map[string]Cluster) error {
 	if strings.TrimSpace(t.Cluster) == "" {
@@ -156,6 +143,7 @@ func (b *Bridge) ApplyDefaults() {
 	if b.CommitMaxRecords == 0 {
 		b.CommitMaxRecords = DefaultCommitMaxRecords
 	}
+	b.applyHeadersDefaults()
 }
 
 // EffectiveOverridePartition returns the configured destination partition override, if any.

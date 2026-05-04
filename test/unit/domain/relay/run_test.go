@@ -74,14 +74,17 @@ func TestRunWithClients_includesExtraHeadersAfterSourceHeaders(t *testing.T) {
 		t.Fatal("expected produced record")
 	}
 	h := producer.lastBatch[0].Headers
-	if len(h) != 6 {
-		t.Fatalf("header count = %d, want 6 (4 source + 1 extra + 1 upstream)", len(h))
+	if len(h) != 3 {
+		t.Fatalf("header count = %d, want 3 (course hash + 1 extra + 1 upstream)", len(h))
 	}
-	if string(h[4].Key) != "env" || string(h[4].Value) != "prod" {
-		t.Fatalf("extra header: %+v", h[4])
+	if h[0].Key != relay.HeaderCourseHash || len(h[0].Value) != 32 {
+		t.Fatalf("course hash header: %+v", h[0])
 	}
-	if string(h[5].Key) != "upstream" {
-		t.Fatalf("upstream header position: %+v", h[5])
+	if string(h[1].Key) != "env" || string(h[1].Value) != "prod" {
+		t.Fatalf("extra header: %+v", h[1])
+	}
+	if string(h[2].Key) != "upstream" {
+		t.Fatalf("upstream header position: %+v", h[2])
 	}
 }
 

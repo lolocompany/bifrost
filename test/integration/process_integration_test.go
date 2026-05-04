@@ -118,20 +118,21 @@ func runRelayScenario(t *testing.T, provider kafkautil.Provider, sc relayScenari
 		t.Fatalf("read fixture: %v", err)
 	}
 	data := scenario.ConfigData{
-		FromTopic:      fromTopic,
-		ToTopic:        toTopic,
-		FromCluster:    "a",
-		ToCluster:      "b",
-		BrokersFrom:    brokers,
-		BrokersTo:      brokers,
-		MetricsAddr:    metricsAddr,
-		BridgeName:     "itest-process",
-		ConsumerGroup:  "itest-cg-" + suffix,
-		BatchSize:      sc.batchSize,
-		Replicas:       sc.replicas,
-		HasOverrideKey: sc.overrideKey != "",
-		OverrideKey:    sc.overrideKey,
-		ExtraHeaders:   sc.extraHeaders,
+		FromTopic:           fromTopic,
+		ToTopic:             toTopic,
+		FromCluster:         "a",
+		ToCluster:           "b",
+		BrokersFrom:         brokers,
+		BrokersTo:           brokers,
+		MetricsAddr:         metricsAddr,
+		BridgeName:          "itest-process",
+		ConsumerGroup:       "itest-cg-" + suffix,
+		BatchSize:           sc.batchSize,
+		Replicas:            sc.replicas,
+		HasOverrideKey:      sc.overrideKey != "",
+		OverrideKey:         sc.overrideKey,
+		ExtraHeaders:        sc.extraHeaders,
+		HeadersSourceFormat: "verbose",
 	}
 	cfg, err := scenario.RenderConfig(string(tmpl), data)
 	if err != nil {

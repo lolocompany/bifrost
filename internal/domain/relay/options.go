@@ -34,7 +34,29 @@ type Options struct {
 	OverrideKey           []byte
 	Sleep                 func(context.Context, time.Duration) error
 	Jitter                func(time.Duration) time.Duration
-	// ExtraHeaders are appended to each produced record after bifrost.source.* headers and before
-	// headers copied from the source record.
+	// ExtraHeaders are appended after bifrost course/source headers (if enabled) and before
+	// optional propagated record headers.
 	ExtraHeaders []kgo.RecordHeader
+	// SourceHeadersEnabled when nil defaults to true (emit bifrost.course.hash and optional source.*).
+	SourceHeadersEnabled *bool
+	// SourceHeadersVerbose when true appends bifrost.source.* after the course hash (compact is default).
+	SourceHeadersVerbose bool
+	// PropagateRecordHeaders when nil defaults to true (copy consumed record headers to output).
+	PropagateRecordHeaders *bool
+}
+
+// EffectiveSourceHeadersEnabled returns whether bifrost course/source headers are emitted (default true).
+func (o Options) EffectiveSourceHeadersEnabled() bool {
+	if o.SourceHeadersEnabled == nil {
+		return true
+	}
+	return *o.SourceHeadersEnabled
+}
+
+// EffectivePropagateRecordHeaders returns whether inbound record headers are copied to outbound records (default true).
+func (o Options) EffectivePropagateRecordHeaders() bool {
+	if o.PropagateRecordHeaders == nil {
+		return true
+	}
+	return *o.PropagateRecordHeaders
 }

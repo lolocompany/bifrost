@@ -8,11 +8,34 @@ import (
 
 func mapBatchToOutput(id Identity, batch []*kgo.Record, opts Options) []*kgo.Record {
 	out := make([]*kgo.Record, 0, len(batch))
+	srcOn := opts.EffectiveSourceHeadersEnabled()
+	propagate := opts.EffectivePropagateRecordHeaders()
 	for _, r := range batch {
-		headers := make([]kgo.RecordHeader, 0, len(r.Headers)+4+len(opts.ExtraHeaders))
-		headers = AppendSourceHeaders(headers, id, r)
+		part, off := NormalizedSourceCoord(r)
+		nSrc := 0
+		if srcOn {
+			nSrc = 1
+			if opts.SourceHeadersVerbose {
+				nSrc += 4
+			}
+		}
+		nExtra := len(opts.ExtraHeaders)
+		nProp := 0
+		if propagate {
+			nProp = len(r.Headers)
+		}
+		headers := make([]kgo.RecordHeader, 0, nSrc+nExtra+nProp)
+
+		if srcOn {
+			headers = AppendCourseHashHeader(headers, id, r.Topic, part, off)
+			if opts.SourceHeadersVerbose {
+				headers = AppendSourceHeaders(headers, id, r.Topic, part, off)
+			}
+		}
 		headers = append(headers, opts.ExtraHeaders...)
-		headers = append(headers, r.Headers...)
+		if propagate {
+			headers = append(headers, r.Headers...)
+		}
 		record := &kgo.Record{
 			Topic:     id.ToTopic,
 			Key:       r.Key,

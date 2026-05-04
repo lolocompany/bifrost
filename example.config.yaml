@@ -129,11 +129,19 @@ bridges:
     # override_key: 'static-key'
     # Optional consumer group. Defaults to "bifrost-<sanitized bridge name>" when omitted.
     # consumer_group: "bifrost-a-to-b"
-    # Optional string Kafka headers added to every produced record (after bifrost.source.*, before
-    # headers from the source message). Keys cannot use the bifrost.* prefix (reserved).
+    # Optional: produced-record Kafka headers (course hash, structured source coords, propagation, extras).
+    # headers:
+    #   extra:
+    #     env: 'prod'
+    #     my_trace: 'abc'
+    #   source:
+    #     enabled: true
+    #     # compact (default) = bifrost.course.hash only; verbose = hash + bifrost.source.* tuple.
+    #     format: compact
+    #   propagate: true
+    # Deprecated: same as headers.extra when it is the only map; must match headers.extra if both appear.
     # extra_headers:
     #   env: 'prod'
-    #   my_trace: 'abc'
 
 metrics:
   # Enable/disable Prometheus metrics endpoint and collectors.

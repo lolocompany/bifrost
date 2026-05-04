@@ -20,6 +20,8 @@ type ConfigData struct {
 	OverrideKey    string
 	HasOverrideKey bool
 	ExtraHeaders   map[string]string
+	// HeadersSourceFormat when non-empty sets headers.source.format (e.g. "verbose" for integration asserts).
+	HeadersSourceFormat string
 }
 
 func RenderConfig(tmpl string, data ConfigData) ([]byte, error) {

@@ -213,14 +213,27 @@ func RelayOptionsFromBridge(periodicStatsInterval time.Duration, bridgeCfg confi
 		}
 		commitInterval = d
 	}
+	var srcDisabled *bool
+	if !bridgeCfg.SourceHeadersEnabled() {
+		v := false
+		srcDisabled = &v
+	}
+	var propagateDisabled *bool
+	if !bridgeCfg.PropagateRecordHeaders() {
+		v := false
+		propagateDisabled = &v
+	}
 	return relay.Options{
-		PeriodicStatsInterval: periodicStatsInterval,
-		BatchSize:             bridgeCfg.EffectiveBatchSize(),
-		MaxInFlightBatches:    bridgeCfg.MaxInFlightBatches,
-		CommitInterval:        commitInterval,
-		CommitMaxRecords:      bridgeCfg.CommitMaxRecords,
-		OverridePartition:     bridgeCfg.OverridePartition,
-		OverrideKey:           overrideKeyBytes(bridgeCfg.OverrideKey),
+		PeriodicStatsInterval:  periodicStatsInterval,
+		BatchSize:              bridgeCfg.EffectiveBatchSize(),
+		MaxInFlightBatches:     bridgeCfg.MaxInFlightBatches,
+		CommitInterval:         commitInterval,
+		CommitMaxRecords:       bridgeCfg.CommitMaxRecords,
+		OverridePartition:      bridgeCfg.OverridePartition,
+		OverrideKey:            overrideKeyBytes(bridgeCfg.OverrideKey),
+		SourceHeadersEnabled:   srcDisabled,
+		SourceHeadersVerbose:   bridgeCfg.SourceHeadersVerbose(),
+		PropagateRecordHeaders: propagateDisabled,
 		Retry: relay.RetryPolicy{
 			Produce: relay.RetryConfig{
 				MinBackoff: produceRetry.MinBackoff,
@@ -243,7 +256,7 @@ func overrideKeyBytes(key *string) []byte {
 	return []byte(*key)
 }
 
-// recordHeadersFromExtraHeaders builds Kafka headers from bridge extra_headers (sorted by key for stable output).
+// recordHeadersFromExtraHeaders builds Kafka headers from bridge headers.extra (sorted by key for stable output).
 func recordHeadersFromExtraHeaders(m map[string]string) []kgo.RecordHeader {
 	if len(m) == 0 {
 		return nil

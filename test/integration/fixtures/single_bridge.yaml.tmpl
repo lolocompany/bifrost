@@ -24,10 +24,17 @@ bridges:
 {{- if .HasOverrideKey }}
     override_key: '{{ .OverrideKey }}'
 {{- end }}
+{{- if or .ExtraHeaders (ne .HeadersSourceFormat "") }}
+    headers:
 {{- if .ExtraHeaders }}
-    extra_headers:
+      extra:
 {{- range $k, $v := .ExtraHeaders }}
-      {{ $k }}: '{{ $v }}'
+        {{ $k }}: '{{ $v }}'
+{{- end }}
+{{- end }}
+{{- if ne .HeadersSourceFormat "" }}
+      source:
+        format: '{{ .HeadersSourceFormat }}'
 {{- end }}
 {{- end }}
 

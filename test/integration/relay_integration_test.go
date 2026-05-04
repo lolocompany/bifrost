@@ -50,18 +50,19 @@ func runBridgeRelayTest(t *testing.T, provider kafkautil.Provider) {
 		t.Fatalf("read fixture: %v", err)
 	}
 	rendered, err := scenario.RenderConfig(string(tmpl), scenario.ConfigData{
-		FromTopic:      fromTopic,
-		ToTopic:        toTopic,
-		FromCluster:    "a",
-		ToCluster:      "b",
-		BrokersFrom:    brokers,
-		BrokersTo:      brokers,
-		MetricsAddr:    metricsAddr,
-		BridgeName:     "itest",
-		ConsumerGroup:  "itest-cg-" + suffix,
-		BatchSize:      1,
-		Replicas:       1,
-		HasOverrideKey: false,
+		FromTopic:           fromTopic,
+		ToTopic:             toTopic,
+		FromCluster:         "a",
+		ToCluster:           "b",
+		BrokersFrom:         brokers,
+		BrokersTo:           brokers,
+		MetricsAddr:         metricsAddr,
+		BridgeName:          "itest",
+		ConsumerGroup:       "itest-cg-" + suffix,
+		BatchSize:           1,
+		Replicas:            1,
+		HasOverrideKey:      false,
+		HeadersSourceFormat: "verbose",
 	})
 	if err != nil {
 		t.Fatalf("render config: %v", err)
@@ -113,6 +114,9 @@ func runBridgeRelayTest(t *testing.T, provider kafkautil.Provider) {
 			}
 		}
 		return nil, false
+	}
+	if v, ok := headerVal(relay.HeaderCourseHash); !ok || len(v) != 32 {
+		t.Fatalf("header %s: len=%d ok=%v", relay.HeaderCourseHash, len(v), ok)
 	}
 	if v, ok := headerVal(relay.HeaderSourceCluster); !ok || string(v) != "a" {
 		t.Fatalf("header %s: got %q ok=%v", relay.HeaderSourceCluster, v, ok)

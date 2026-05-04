@@ -169,18 +169,31 @@ Codequality policy and governance: `[.cursor/docs/codequality.md](./.cursor/docs
 
 ---
 
-## Downstream deduplication (source headers)
+## Downstream deduplication (headers)
 
-Every relayed record includes **source coordinate** headers so consumers can treat deliveries as **at-least-once** and still process each logical message once. The bridge always sets these; optional per-bridge `**extra_headers`** in YAML are added next, then any headers copied from the source record. Extra header keys must not use the `**bifrost.\*\*\*`prefix (reserved for the relay). By default, bifrost writes each destination record to the same partition number as the source record, so the destination topic must have at least as many partitions as the source topic.`override_partition`can force all records on a bridge to one destination partition instead, and`override_key`can replace every produced record key with a fixed string.`batch_size` groups records by source topic-partition, but offsets are still committed only after the matching produce succeeds.
+Relayed records include **bifrost-owned headers** so consumers can treat deliveries as **at-least-once** and dedupe. Configure per bridge under **`headers`** (see `example.config.yaml`).
 
-| Header                     | Value                                                    |
-| -------------------------- | -------------------------------------------------------- |
-| `bifrost.source.cluster`   | Source cluster name (UTF-8 string, from bridge identity) |
-| `bifrost.source.topic`     | Source topic name (UTF-8 string)                         |
-| `bifrost.source.partition` | Source partition index, **4 bytes big-endian unsigned**  |
-| `bifrost.source.offset`    | Source offset, **8 bytes big-endian unsigned**           |
+| Setting | Role |
+| :-- | :-- |
+| **`headers.source.enabled`** | When true (default), emit metadata headers. When false, omit bifrost source/course headers entirely. |
+| **`headers.source.format`** | `compact` (default): only **`bifrost.course.hash`** — opaque **32-byte SHA-256** over a canonical preimage of `(from cluster, source topic, partition, offset)`. `verbose`: same hash **plus** the four **`bifrost.source.*`** headers below (parseable coordinates). |
+| **`headers.propagate`** | When true (default), append headers from each **source** Kafka record after bifrost/config extras. When false, source record headers are not copied. |
+| **`headers.extra`** | Optional string map of extra headers (sorted on the wire). Keys must not use the `bifrost.*` prefix. Deprecated alias: top-level **`extra_headers`** (must not disagree with `headers.extra`). |
 
-**Idempotency key:** the tuple `(cluster, topic, partition, offset)` uniquely identifies the source record. Use it as a deduplication key in your consumer: store seen keys (or a short hash of the concatenation) in a database, cache, or compacted topic, and skip processing when the key was already handled. That works across redeliveries, consumer restarts, and multiple bridge instances writing the same destination, as long as they all relay the same source coordinates.
+**Compact wire footprint:** `bifrost.course.hash` key (19 bytes UTF-8) + 32-byte value = **51 bytes** fixed — smaller than the four `bifrost.source.*` headers for typical cluster/topic names. Treat the hash value as **opaque**; dedupe by **byte equality** (or hash the value in your app).
+
+**Verbose structured headers** (only when `headers.source.format: verbose`; always **after** `bifrost.course.hash`):
+
+| Header | Value |
+| :-- | :-- |
+| `bifrost.source.cluster` | Source cluster name (UTF-8) |
+| `bifrost.source.topic` | Source topic name (UTF-8) |
+| `bifrost.source.partition` | Source partition, **4 bytes big-endian unsigned** |
+| `bifrost.source.offset` | Source offset, **8 bytes big-endian unsigned** |
+
+**Idempotency:** prefer deduping on **`bifrost.course.hash`** (stable across relay instances). With verbose mode you can alternatively key on `(cluster, topic, partition, offset)` from the structured headers.
+
+Partition preservation, `override_partition`, `override_key`, and `batch_size` behave as before (see earlier sections).
 
 ---
 

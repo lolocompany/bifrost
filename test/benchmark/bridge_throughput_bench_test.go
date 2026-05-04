@@ -364,7 +364,7 @@ func benchmarkBridgeRelayWithBurst(b *testing.B, payloadSize int, burst int) {
 		})
 	}()
 
-	// Wait until the bridge has relayed the from-topic bootstrap (record has bifrost source headers).
+	// Wait until the bridge has relayed the from-topic bootstrap (record has bifrost.course.hash).
 	// Do not count "two records on to-topic": the nil bootstrap is not a relay, and counting
 	// records blocked for minutes when the bridge consumer group was slow to assign while verify
 	// had already consumed the nil produce.
@@ -584,7 +584,7 @@ func mustCreateBenchTopic(b *testing.B, ctx context.Context, cl *kgo.Client, top
 }
 
 // waitForBenchRelayOnToTopic blocks until a record produced by internal/domain/relay appears on toTopic
-// (identified by bifrost source headers). This avoids counting raw topic records: the pump's
+// (identified by bifrost course hash header).
 // nil bootstrap to to-topic is not a relay and must not be confused with the relayed seed.
 func waitForBenchRelayOnToTopic(ctx context.Context, cl *kgo.Client, toTopic string, errCh <-chan error) error {
 	for {
@@ -612,7 +612,7 @@ func waitForBenchRelayOnToTopic(ctx context.Context, cl *kgo.Client, toTopic str
 				continue
 			}
 			for _, h := range r.Headers {
-				if h.Key == relay.HeaderSourceCluster {
+				if h.Key == relay.HeaderCourseHash {
 					return nil
 				}
 			}

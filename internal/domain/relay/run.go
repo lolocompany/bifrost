@@ -15,8 +15,8 @@ import (
 
 // Run consumes from the from-side cluster, produces to the to-side cluster, and commits
 // from-side offsets after each successful write on the to side. Each produced record includes
-// bifrost.source.* headers (see AppendSourceHeaders), then optional ExtraHeaders from config, then
-// any headers copied from the source record.
+// bifrost.course.hash (and optionally bifrost.source.* when verbose), then optional ExtraHeaders
+// from config, then optionally headers copied from the source record.
 //
 // When PeriodicStatsInterval is greater than zero, Run logs info-level "bridge periodic stats"
 // on that interval with messages_delta and errors_delta since the previous log.

@@ -16,9 +16,9 @@ Key product facts:
   - `batch_size`: batch per source partition (`1` means no batching).
   - `override_partition`: force destination partition.
   - `override_key`: replace produced key with fixed string.
-  - `extra_headers`: add string headers after `bifrost.source.*`; keys must not start `bifrost.*`.
+  - `headers`: optional `extra` map, `source.enabled` / `source.format` (`compact`|`verbose`), `propagate`; legacy `extra_headers` must match `headers.extra` if both set.
   - In docs/config, user-facing word is **bridge**.
-- **Relay (behavior):** `internal/domain/relay` runs relay loop (`relay.Run`): consume -> produce -> commit, with retries + `bifrost.source.*` headers for downstream dedupe.
+- **Relay (behavior):** `internal/domain/relay` runs relay loop (`relay.Run`): consume -> produce -> commit, with retries + `bifrost.course.hash` (and optional `bifrost.source.*` when verbose) for downstream dedupe.
   - Batching stays partition-local.
   - At-least-once preserved: commit only after matching produce succeeds.
   - README + metrics often use **relay** (`bifrost_relay_*`).

@@ -1,6 +1,7 @@
 package relay_test
 
 import (
+	"bytes"
 	"encoding/binary"
 	"testing"
 
@@ -24,9 +25,9 @@ func TestAppendSourceHeaders(t *testing.T) {
 			{Key: "x", Value: []byte("y")},
 		},
 	}
-
+	part, off := relay.NormalizedSourceCoord(r)
 	var base []kgo.RecordHeader
-	got := append(append([]kgo.RecordHeader{}, relay.AppendSourceHeaders(base, id, r)...), r.Headers...)
+	got := append(append([]kgo.RecordHeader{}, relay.AppendSourceHeaders(base, id, r.Topic, part, off)...), r.Headers...)
 
 	if len(got) != 5 {
 		t.Fatalf("headers: len %d want 5", len(got))
@@ -51,5 +52,29 @@ func TestAppendSourceHeaders(t *testing.T) {
 	}
 	if string(got[4].Key) != "x" || string(got[4].Value) != "y" {
 		t.Fatalf("original header: %+v", got[4])
+	}
+}
+
+func TestCourseHash_deterministic(t *testing.T) {
+	id := relay.Identity{FromCluster: "c1"}
+	topic := "t1"
+	var part int32 = 7
+	var off int64 = 99
+	h1 := relay.CourseHash(id, topic, part, off)
+	h2 := relay.CourseHash(id, topic, part, off)
+	if h1 != h2 {
+		t.Fatalf("hash mismatch")
+	}
+	if len(h1) != 32 {
+		t.Fatalf("len %d want 32", len(h1))
+	}
+}
+
+func TestCourseHash_distinctInputs(t *testing.T) {
+	id := relay.Identity{FromCluster: "c1"}
+	h1 := relay.CourseHash(id, "t", 0, 0)
+	h2 := relay.CourseHash(id, "u", 0, 0)
+	if bytes.Equal(h1[:], h2[:]) {
+		t.Fatal("expected different hashes")
 	}
 }
